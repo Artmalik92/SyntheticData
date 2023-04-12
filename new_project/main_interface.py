@@ -3,8 +3,6 @@ import os
 import re
 import tempfile
 import shutil
-import uuid
-import hashlib
 import pandas as pd
 from PyQt5.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
     QComboBox, QFileDialog, QTextEdit, QDesktopWidget
@@ -73,26 +71,32 @@ class MyWindow(QWidget):
         self.textbox2.resize(280, 40)
         self.textbox2.setText('2022-01-01')
 
-        # Определение функций обработки нажатия кнопок
+        # функция нажатия кнопки №1 (генерация модели)
         def btn1_press():
+            # проверяем корректность введенных пользователем настроек
             if self.textbox.text().isdigit():
                 self.num_periods = int(self.textbox.text())
                 if self.num_periods < 1:
-                    self.command_line.insertPlainText('Неверно указано кол-во наблюдений\n')
+                    self.command_line.append('Неверно указано кол-во наблюдений')
                     return
             else:
-                self.command_line.insertPlainText('Неверно указано кол-во наблюдений\n')
+                self.command_line.append('Неверно указано кол-во наблюдений')
                 return
             self.start_date = self.textbox2.text()
             if not date_regex.match(self.start_date):  # проверяем соответствие формату даты
                 self.command_line.append('Некорректный формат даты')
                 return
 
+            #  Создаем список дат на основе заданных настроек
             self.date_list = pd.date_range(start=self.start_date, periods=self.num_periods, freq=self.interval)
+
+            #  Если от предыдущих использований остались временные файлы, удаляем их
             files = os.listdir(self.data_dir)
             for file_name in files:
                 if file_name.startswith("temp"):
                     os.remove(os.path.join(self.data_dir, file_name))
+
+            #  Создаем временной ряд
             try:
                 data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5, 10)
                 data_xyz = SyntheticData.my_geodetic2ecef(data)
@@ -102,6 +106,7 @@ class MyWindow(QWidget):
             except Exception as e:
                 self.command_line.append(f'Exception: {e}')
 
+            # Проверяем отмеченные пользователем чекбоксы
             if self.checkbox1.isChecked():
                 SyntheticData.harmonics(Data_interface_xyz, self.date_list, self.periods_in_year)
             if self.checkbox2.isChecked():
@@ -111,13 +116,10 @@ class MyWindow(QWidget):
             if self.checkbox4.isChecked():
                 SyntheticData.impulse(Data_interface_xyz, self.num_periods)
 
+            # Переводим временной ряд в BLH
             Data_interface_blh = SyntheticData.my_ecef2geodetic(Data_interface_xyz)
-            # Сохраняем DataFrame в файл
-            '''
-            file_id = str(uuid.uuid1().hex) # Уникальный идентификатор uuid.
-            file_id = hashlib.sha1(os.urandom(128)).hexdigest()[:4]
-            '''
 
+            # Сохраняем DataFrame в файл
             with tempfile.NamedTemporaryFile(dir=self.data_dir, mode='r', delete=False, prefix='temp_xyz_',
                                              suffix='.csv') as temp_file_xyz:
                 # Сохраняем DataFrame в файл XYZ
@@ -132,12 +134,14 @@ class MyWindow(QWidget):
 
             self.command_line.append("Модель сгенерирована.")
 
+        # Кнопка №2 - графики временного ряда (пока только для NSK1)
         def btn2_press():
             try:
                 nsk1_test(self.temp_file_xyz_name, 'NSK1')
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
+        # Кнопка №3 - Карта геодезической сети (пока только на последнюю дату)
         def btn3_press():
             try:
                 data = pd.DataFrame(pd.read_csv(self.temp_file_blh_name, delimiter=';'))
@@ -147,15 +151,16 @@ class MyWindow(QWidget):
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
+        # Кнопка №4 - Сохранение файла
         def btn4_press():
-            save_format = self.save_format.currentText() # Получение формата сохранения файла
+            save_format = self.save_format.currentText()  # Получение формата сохранения файла
             try:
-                # Откройте диалоговое окно для выбора имени и расположения файла для сохранения
+                # Диалоговое окно для выбора имени и расположения файла для сохранения
                 user_file_path, user_file_filter = QFileDialog.getSaveFileName(caption="Сохранить файл",
                                                                                directory=
                                                                                self.data_dir+"/data_"+save_format,
                                                                                filter='CSV (*.csv)')
-                # Если пользователь выбрал файл, скопируйте содержимое временного файла в этот файл
+                # копирование из временного файла в новый файл
                 if user_file_path:
                     with open(user_file_path, "w") as user_file:
                         # Сохраняем DataFrame в файл в выбранном формате
@@ -203,12 +208,12 @@ class MyWindow(QWidget):
 
         self.setLayout(layout)
 
+    # Закрытие окна программы
     def closeEvent(self, event):
-        # Удаляем все временные файлы
         files = os.listdir(self.data_dir)
         for file_name in files:
             if file_name.startswith("temp"):
-                os.remove(os.path.join(self.data_dir, file_name))
+                os.remove(os.path.join(self.data_dir, file_name))  # Удаляем все временные файлы
         event.accept()
 
 
@@ -223,9 +228,4 @@ if __name__ == '__main__':
     window.move(int(center[0]), int(center[1]))  # перемещаем окно в центр экрана
     window.show()
     sys.exit(app.exec_())
-
-
-
-
-
 
