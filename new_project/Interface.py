@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import tempfile
 import shutil
 import uuid
@@ -9,19 +10,32 @@ from PyQt5.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGrid
     QComboBox, QFileDialog, QTextEdit, QDesktopWidget
 from PyQt5 import QtGui
 from timeseries_data_new import nsk1_test
-from DataFrame_with_coordinates import SyntheticData, date_list, start_date
-
-global num_periods
+from DataFrame_with_coordinates import SyntheticData
 
 
 class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
 
+        # Задаем начальную дату, интервал и общее количество дней
+        date_regex = re.compile(r'^\d{4}-\d{2}-\d{2}$')  # регулярное выражение для формата даты 'yyyy-mm-dd'
+        self.start_date = None
+        self.interval = 'W'  # pd.Timedelta(days=1)
+        self.num_periods = None
+        self.periods_in_year = None
+
+        if self.interval == 'W':
+            self.periods_in_year = 52
+        if self.interval == 'D':
+            self.periods_in_year = 365
+
+        # Создаем список дат
+        self.date_list = None
+
         self.temp_file_xyz_name = ''  # Переменные для хранения имен временных файлов
         self.temp_file_blh_name = ''
 
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))  # Определяем расположение директории
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))   # Определяем расположение директории
         self.data_dir = os.path.join(self.script_dir, "Data")          # Определяем расположения папки для файлов
 
         # Создание кнопок
@@ -45,18 +59,36 @@ class MyWindow(QWidget):
         self.command_line.setStyleSheet("background-color: black; color: white;")
         self.command_line.setFont(QtGui.QFont("Courier", 12))
 
-        '''
         # Label
         self.label1 = QLabel(self)
-        self.label1.setText('Number of periods (weeks)')
-        
+        self.label1.setText('Num of periods:')
+        self.label2 = QLabel(self)
+        self.label2.setText('Start date:')
+
         # Создание поля для ввода
         self.textbox = QLineEdit()
         self.textbox.resize(280, 40)
-        num_periods = self.textbox.text()
-        '''
+        self.textbox.setText('104')
+        self.textbox2 = QLineEdit()
+        self.textbox2.resize(280, 40)
+        self.textbox2.setText('2022-01-01')
+
         # Определение функций обработки нажатия кнопок
         def btn1_press():
+            if self.textbox.text().isdigit():
+                self.num_periods = int(self.textbox.text())
+                if self.num_periods < 1:
+                    self.command_line.insertPlainText('Неверно указано кол-во наблюдений\n')
+                    return
+            else:
+                self.command_line.insertPlainText('Неверно указано кол-во наблюдений\n')
+                return
+            self.start_date = self.textbox2.text()
+            if not date_regex.match(self.start_date):  # проверяем соответствие формату даты
+                self.command_line.append('Некорректный формат даты')
+                return
+
+            self.date_list = pd.date_range(start=self.start_date, periods=self.num_periods, freq=self.interval)
             files = os.listdir(self.data_dir)
             for file_name in files:
                 if file_name.startswith("temp"):
@@ -64,20 +96,20 @@ class MyWindow(QWidget):
             try:
                 data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5, 10)
                 data_xyz = SyntheticData.my_geodetic2ecef(data)
-                Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, date_list))
+                Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, self.date_list))
             except MemoryError as e:
                 self.command_line.append(f'Memory error: {e}')
             except Exception as e:
                 self.command_line.append(f'Exception: {e}')
 
             if self.checkbox1.isChecked():
-                SyntheticData.harmonics(Data_interface_xyz, date_list)
+                SyntheticData.harmonics(Data_interface_xyz, self.date_list, self.periods_in_year)
             if self.checkbox2.isChecked():
-                SyntheticData.linear_trend(Data_interface_xyz, date_list)
+                SyntheticData.linear_trend(Data_interface_xyz, self.date_list, self.periods_in_year)
             if self.checkbox3.isChecked():
-                SyntheticData.noise(Data_interface_xyz)
+                SyntheticData.noise(Data_interface_xyz, self.num_periods)
             if self.checkbox4.isChecked():
-                SyntheticData.impulse(Data_interface_xyz)
+                SyntheticData.impulse(Data_interface_xyz, self.num_periods)
 
             Data_interface_blh = SyntheticData.my_ecef2geodetic(Data_interface_xyz)
             # Сохраняем DataFrame в файл
@@ -100,20 +132,18 @@ class MyWindow(QWidget):
 
             self.command_line.append("Модель сгенерирована.")
 
-        def btn2_press(filename_XYZ):
+        def btn2_press():
             try:
-                nsk1_test(f'Data/{filename_XYZ}', 'NSK1')
+                nsk1_test(self.temp_file_xyz_name, 'NSK1')
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
         def btn3_press():
             try:
-                data = pd.DataFrame(pd.read_csv('data.csv', delimiter=';'))
-                data_blh = SyntheticData.my_ecef2geodetic(data)
-                last_date = data_blh['Date'].max()
-                df_on_date = data_blh[data_blh['Date'] == last_date]
+                data = pd.DataFrame(pd.read_csv(self.temp_file_blh_name, delimiter=';'))
+                last_date = data['Date'].max()
+                df_on_date = data[data['Date'] == last_date]
                 SyntheticData.triangulation(df_on_date)
-                print(df_on_date)
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
@@ -147,23 +177,26 @@ class MyWindow(QWidget):
 
         # Создание макета и добавление элементов управления
         layout = QGridLayout()
-        '''
+
         layout.addWidget(self.label1, 0, 1)
-        layout.addWidget(self.textbox, 1, 1)
-        '''
-        layout.addWidget(self.checkbox1, 1, 0)
-        layout.addWidget(self.checkbox2, 2, 0)
-        layout.addWidget(self.checkbox3, 3, 0)
-        layout.addWidget(self.checkbox4, 4, 0)
+        layout.addWidget(self.textbox, 0, 2)
+        layout.addWidget(self.label2, 1, 1)
+        layout.addWidget(self.textbox2, 1, 2)
 
-        layout.addWidget(self.button1, 5, 0)
-        layout.addWidget(self.button2, 5, 1)
-        layout.addWidget(self.button3, 5, 2)
+        layout.addWidget(self.checkbox1, 0, 0)
+        layout.addWidget(self.checkbox2, 1, 0)
+        layout.addWidget(self.checkbox3, 2, 0)
+        layout.addWidget(self.checkbox4, 3, 0)
 
-        layout.addWidget(self.save_format, 6, 0)
-        layout.addWidget(self.button4, 6, 1)
-        layout.addWidget(self.command_line, 7, 0, 1, -1)
-        layout.setRowStretch(7, 0)  # устанавливаем политику растяжения для 8-й строки
+        layout.addWidget(self.button1, 4, 0)
+        layout.addWidget(self.button2, 4, 1)
+        layout.addWidget(self.button3, 4, 2)
+
+        layout.addWidget(self.save_format, 5, 0)
+        layout.addWidget(self.button4, 5, 1)
+        layout.addWidget(self.command_line, 6, 0, 1, -1)
+
+        layout.setRowStretch(6, 0)
         layout.setColumnStretch(0, 1)  # устанавливаем политику растяжения
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(2, 1)

@@ -10,29 +10,6 @@ import pymap3d
 import matplotlib.pyplot as plt
 
 
-# Задаем начальную дату, интервал и общее количество дней
-start_date = '2022-01-01'
-interval = 'W'        # pd.Timedelta(days=1)
-num_periods = 104
-periods_in_year = None
-
-if interval == 'W':
-    periods_in_year = 52
-if interval == 'D':
-    periods_in_year = 365
-
-# Создаем список дат
-date_list = pd.date_range(start_date, periods=num_periods, freq=interval)
-'''
-# Создаем пустой DataFrame
-Synthetic_data = pd.DataFrame(columns=['Date', 'Station', 'X', 'Y', 'Z'])
-
-# Задаем имена геодезических пунктов
-points = ['KIZ1', 'KAGP', 'NSK1']
-
-# Задаем начальные координаты для каждого пункта
-coordinates = [(p['B'], p['L'], p['H']) for p in points]
-'''
 # скорости пунктов для линейного тренда
 vx = [0, -0.0248, -0.0282]  # m/year
 vy = [0, 0.0022, 0.0048]    # m/year
@@ -218,7 +195,7 @@ class SyntheticData(DataFrame):
         return rows
 
     # добавляем годовые и полугодовые колебания
-    def harmonics(df, date_list):
+    def harmonics(df, date_list, periods_in_year):
         stations = SyntheticData.unique_names(df)
         x_harmonic_array = []
         y_harmonic_array = []
@@ -252,7 +229,7 @@ class SyntheticData(DataFrame):
         return df
 
     # линейный тренд
-    def linear_trend(df, date_list):
+    def linear_trend(df, date_list, periods_in_year):
         stations = SyntheticData.unique_names(df)
         row_vx = []
         row_vy = []
@@ -275,7 +252,7 @@ class SyntheticData(DataFrame):
         return df
 
     # шум
-    def noise(df):
+    def noise(df, num_periods):
         stations = SyntheticData.unique_names(df)
         kappa = -1                       # Flicker noise
         N = num_periods * len(stations)  # size of the file
@@ -294,7 +271,7 @@ class SyntheticData(DataFrame):
         return df
 
     # импульс (скачок измерений)
-    def impulse(df):
+    def impulse(df, num_periods):
         stations = SyntheticData.unique_names(df)
         N = num_periods * len(stations)  # size of the file
         impulse_array = unit_impulse(N, 520) * 0.02
