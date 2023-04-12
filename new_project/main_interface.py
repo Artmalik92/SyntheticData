@@ -9,8 +9,8 @@ import pandas as pd
 from PyQt5.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
     QComboBox, QFileDialog, QTextEdit, QDesktopWidget
 from PyQt5 import QtGui
-from timeseries_data_new import nsk1_test
-from DataFrame_with_coordinates import SyntheticData
+from plotting_coordinates import nsk1_test
+from Synthetic_data import SyntheticData
 
 
 class MyWindow(QWidget):
