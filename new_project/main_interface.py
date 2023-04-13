@@ -5,7 +5,7 @@ import tempfile
 import shutil
 import pandas as pd
 from PyQt5.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
-    QComboBox, QFileDialog, QTextEdit, QDesktopWidget
+    QComboBox, QFileDialog, QTextEdit, QDesktopWidget, QSpinBox
 from PyQt5 import QtGui
 from plotting_coordinates import nsk1_test
 from Synthetic_data import SyntheticData
@@ -18,15 +18,10 @@ class MyWindow(QWidget):
         # Задаем начальную дату, интервал и общее количество дней
         date_regex = re.compile(r'^\d{4}-\d{2}-\d{2}$')  # регулярное выражение для формата даты 'yyyy-mm-dd'
         self.start_date = None
-        self.interval = 'W'  # pd.Timedelta(days=1)
+        self.interval = None  # pd.Timedelta(days=1)
         self.num_periods = None
         self.periods_in_year = None
-
-        if self.interval == 'W':
-            self.periods_in_year = 52
-        if self.interval == 'D':
-            self.periods_in_year = 365
-
+        self.points_amount = None
         # Создаем список дат
         self.date_list = None
 
@@ -51,6 +46,8 @@ class MyWindow(QWidget):
         # Создание выпадающего списка с выбором формата сохранения файла
         self.save_format = QComboBox()
         self.save_format.addItems(['XYZ', 'BLH'])
+        self.choose_interval = QComboBox()
+        self.choose_interval.addItems(['W', 'D'])
 
         # Создаем подобие командной строки
         self.command_line = QTextEdit(self)
@@ -62,6 +59,10 @@ class MyWindow(QWidget):
         self.label1.setText('Num of periods:')
         self.label2 = QLabel(self)
         self.label2.setText('Start date:')
+        self.label3 = QLabel(self)
+        self.label3.setText('Interval(week/day):')
+        self.label4 = QLabel(self)
+        self.label4.setText('Num of points:')
 
         # Создание поля для ввода
         self.textbox = QLineEdit()
@@ -70,6 +71,12 @@ class MyWindow(QWidget):
         self.textbox2 = QLineEdit()
         self.textbox2.resize(280, 40)
         self.textbox2.setText('2022-01-01')
+
+        # SpinBox
+        self.points_spinbox = QSpinBox()
+        self.points_spinbox.setRange(3, 15)
+        self.points_spinbox.setSingleStep(1)
+        self.points_spinbox.setValue(10)
 
         # функция нажатия кнопки №1 (генерация модели)
         def btn1_press():
@@ -87,18 +94,28 @@ class MyWindow(QWidget):
                 self.command_line.append('Некорректный формат даты')
                 return
 
-            #  Создаем список дат на основе заданных настроек
+            # Принимаем выбранное пользователем значение интервала измерений
+            self.interval = self.choose_interval.currentText()
+            if self.interval == 'W':
+                self.periods_in_year = 52
+            if self.interval == 'D':
+                self.periods_in_year = 365
+
+            # Создаем список дат на основе заданных настроек
             self.date_list = pd.date_range(start=self.start_date, periods=self.num_periods, freq=self.interval)
 
-            #  Если от предыдущих использований остались временные файлы, удаляем их
+            # Принимаем от пользователя количество пунктов
+            self.points_amount = self.points_spinbox.value()
+
+            # Если остались посторонние временные файлы, удаляем их
             files = os.listdir(self.data_dir)
             for file_name in files:
                 if file_name.startswith("temp"):
                     os.remove(os.path.join(self.data_dir, file_name))
 
-            #  Создаем временной ряд
+            # Создаем временной ряд
             try:
-                data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5, 10)
+                data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5, self.points_amount)
                 data_xyz = SyntheticData.my_geodetic2ecef(data)
                 Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, self.date_list))
             except MemoryError as e:
@@ -119,19 +136,15 @@ class MyWindow(QWidget):
             # Переводим временной ряд в BLH
             Data_interface_blh = SyntheticData.my_ecef2geodetic(Data_interface_xyz)
 
-            # Сохраняем DataFrame в файл
+            # Сохраняем DataFrame во временный файл
             with tempfile.NamedTemporaryFile(dir=self.data_dir, mode='r', delete=False, prefix='temp_xyz_',
                                              suffix='.csv') as temp_file_xyz:
-                # Сохраняем DataFrame в файл XYZ
                 Data_interface_xyz.to_csv(temp_file_xyz.name, sep=';', index=False)
                 self.temp_file_xyz_name = temp_file_xyz.name  # сохраняем имя временного файла
-
             with tempfile.NamedTemporaryFile(dir=self.data_dir, mode='r', delete=False, prefix='temp_blh_',
                                              suffix='.csv') as temp_file_blh:
-                # Сохраняем DataFrame в файл BLH
                 Data_interface_blh.to_csv(temp_file_blh.name, sep=';', index=False)
                 self.temp_file_blh_name = temp_file_blh.name  # сохраняем имя временного файла
-
             self.command_line.append("Модель сгенерирована.")
 
         # Кнопка №2 - графики временного ряда (пока только для NSK1)
@@ -187,6 +200,10 @@ class MyWindow(QWidget):
         layout.addWidget(self.textbox, 0, 2)
         layout.addWidget(self.label2, 1, 1)
         layout.addWidget(self.textbox2, 1, 2)
+        layout.addWidget(self.label3, 2, 1)
+        layout.addWidget(self.choose_interval, 2, 2)
+        layout.addWidget(self.label4, 3, 1)
+        layout.addWidget(self.points_spinbox, 3, 2)
 
         layout.addWidget(self.checkbox1, 0, 0)
         layout.addWidget(self.checkbox2, 1, 0)
@@ -220,7 +237,7 @@ class MyWindow(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MyWindow()
-    window.setGeometry(100, 100, 300, 600)  # установка размеров окна
+    window.setGeometry(100, 100, 500, 600)  # установка размеров окна
     window.setWindowTitle('Synthetic TimeSeries data app')
     screen = QDesktopWidget().screenGeometry()  # получаем размер экрана
     size = window.geometry()  # получаем размеры окна
