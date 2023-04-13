@@ -81,7 +81,7 @@ class SyntheticData(DataFrame):
         return unique_names
 
     # Случайная сеть пунктов
-    def random_points(B, L, H, zone, amount):
+    def random_points(B, L, H, zone, amount, method):
         k = 1  # k - количество ближайших соседей для проверки расстояния
         start_point = {'Date': 'None', 'Station': 'NSK1', 'B': B, 'L': L, 'H': H}  # исходный пункт
 
@@ -112,7 +112,10 @@ class SyntheticData(DataFrame):
                 # if any(20000 < geodesic((p['B'], p['L']), (B, L)).meters < 30000 for p in points)
                 # if np.all(20 < d < 30 for d in distances):
                 # print(f"Distances to nearest neighbors of {Station}: {distances}")
-                # start_point = point
+                if method == 'consistent':
+                    start_point = point
+                elif method == 'centralized':
+                    pass
                 points.append(point)
                 k += 1
 

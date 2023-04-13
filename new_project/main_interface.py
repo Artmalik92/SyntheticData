@@ -22,6 +22,8 @@ class MyWindow(QWidget):
         self.num_periods = None
         self.periods_in_year = None
         self.points_amount = None
+        self.gen_method = None
+
         # Создаем список дат
         self.date_list = None
 
@@ -48,6 +50,8 @@ class MyWindow(QWidget):
         self.save_format.addItems(['XYZ', 'BLH'])
         self.choose_interval = QComboBox()
         self.choose_interval.addItems(['W', 'D'])
+        self.choose_method = QComboBox()
+        self.choose_method.addItems(['centralized', 'consistent'])
 
         # Создаем подобие командной строки
         self.command_line = QTextEdit(self)
@@ -63,6 +67,8 @@ class MyWindow(QWidget):
         self.label3.setText('Interval(week/day):')
         self.label4 = QLabel(self)
         self.label4.setText('Num of points:')
+        self.label5 = QLabel(self)
+        self.label5.setText('Generation method:')
 
         # Создание поля для ввода
         self.textbox = QLineEdit()
@@ -104,8 +110,8 @@ class MyWindow(QWidget):
             # Создаем список дат на основе заданных настроек
             self.date_list = pd.date_range(start=self.start_date, periods=self.num_periods, freq=self.interval)
 
-            # Принимаем от пользователя количество пунктов
-            self.points_amount = self.points_spinbox.value()
+            self.points_amount = self.points_spinbox.value()    # Принимаем от пользователя количество пунктов
+            self.gen_method = self.choose_method.currentText()  # Принимаем от пользователя метод генерации
 
             # Если остались посторонние временные файлы, удаляем их
             files = os.listdir(self.data_dir)
@@ -115,7 +121,8 @@ class MyWindow(QWidget):
 
             # Создаем временной ряд
             try:
-                data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5, self.points_amount)
+                data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5,
+                                                   self.points_amount, self.gen_method)
                 data_xyz = SyntheticData.my_geodetic2ecef(data)
                 Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, self.date_list))
             except MemoryError as e:
@@ -196,29 +203,32 @@ class MyWindow(QWidget):
         # Создание макета и добавление элементов управления
         layout = QGridLayout()
 
-        layout.addWidget(self.label1, 0, 1)
-        layout.addWidget(self.textbox, 0, 2)
-        layout.addWidget(self.label2, 1, 1)
-        layout.addWidget(self.textbox2, 1, 2)
-        layout.addWidget(self.label3, 2, 1)
-        layout.addWidget(self.choose_interval, 2, 2)
-        layout.addWidget(self.label4, 3, 1)
+        layout.addWidget(self.label3, 0, 1)            # Interval
+        layout.addWidget(self.choose_interval, 0, 2)
+
+        layout.addWidget(self.label1, 1, 1)            # Num of periods
+        layout.addWidget(self.textbox, 1, 2)
+        layout.addWidget(self.label2, 2, 1)            # Start date
+        layout.addWidget(self.textbox2, 2, 2)
+        layout.addWidget(self.label4, 3, 1)            # Num of points
         layout.addWidget(self.points_spinbox, 3, 2)
+        layout.addWidget(self.label5, 4, 1)            # Method
+        layout.addWidget(self.choose_method, 4, 2)
 
         layout.addWidget(self.checkbox1, 0, 0)
         layout.addWidget(self.checkbox2, 1, 0)
         layout.addWidget(self.checkbox3, 2, 0)
         layout.addWidget(self.checkbox4, 3, 0)
 
-        layout.addWidget(self.button1, 4, 0)
-        layout.addWidget(self.button2, 4, 1)
-        layout.addWidget(self.button3, 4, 2)
+        layout.addWidget(self.button1, 5, 0)
+        layout.addWidget(self.button2, 5, 1)
+        layout.addWidget(self.button3, 5, 2)
 
-        layout.addWidget(self.save_format, 5, 0)
-        layout.addWidget(self.button4, 5, 1)
-        layout.addWidget(self.command_line, 6, 0, 1, -1)
+        layout.addWidget(self.save_format, 6, 0)
+        layout.addWidget(self.button4, 6, 1)
+        layout.addWidget(self.command_line, 7, 0, 1, -1)
 
-        layout.setRowStretch(6, 0)
+        layout.setRowStretch(7, 0)
         layout.setColumnStretch(0, 1)  # устанавливаем политику растяжения
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(2, 1)
