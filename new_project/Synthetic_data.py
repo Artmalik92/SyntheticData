@@ -122,11 +122,13 @@ class SyntheticData(DataFrame):
         return pd.DataFrame(points)
 
     # Схема сети (метод триангуляции)
-    def triangulation(df):
-        fig, ax = plt.subplots()
+    def triangulation(df, subplot, canvas):
+        fig = canvas
+        ax = subplot
+        ax.clear()  # очищаем график перед новой отрисовкой
 
         # рисуем точки на графике
-        ax.scatter(df['L'], df['B'], c='blue', zorder=3)
+        scatter = ax.scatter(df['L'], df['B'], c='blue', zorder=3)
         for i, row in df.iterrows():
             ax.annotate(f"{row['H']:.0f} m\n{row['Station']}", (row['L'], row['B'] + 0.01), fontsize=10, color='blue')
 
@@ -179,7 +181,7 @@ class SyntheticData(DataFrame):
             ax.plot([x1, x2], [y1, y2], c='black', linewidth=0.5, zorder=2)
             ax.annotate(f"{dist:.0f} m", ((x1 + x2) / 2, (y1 + y2) / 2), fontsize=8, color='red')
             '''
-        plt.show()
+        canvas.draw()
 
     # Заполняем DataFrame координатами для каждой даты и каждого геодезического пункта
     def create_dataframe(df, date_list):

@@ -4,11 +4,14 @@ import re
 import tempfile
 import shutil
 import pandas as pd
+import numpy as np
 from PyQt5.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
     QComboBox, QFileDialog, QTextEdit, QDesktopWidget, QSpinBox
 from PyQt5 import QtGui
 from plotting_coordinates import nsk1_test
 from Synthetic_data import SyntheticData
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 
 class MyWindow(QWidget):
@@ -16,14 +19,14 @@ class MyWindow(QWidget):
         super().__init__()
 
         # Задаем начальную дату, интервал и общее количество дней
-        date_regex = re.compile(r'^\d{4}-\d{2}-\d{2}$')  # регулярное выражение для формата даты 'yyyy-mm-dd'
+        date_regex = re.compile(r'^\d{4}-\d{2}-\d{2}$')  # выражение для формата даты 'yyyy-mm-dd'
         self.start_date = None
         self.interval = None  # pd.Timedelta(days=1)
         self.num_periods = None
         self.periods_in_year = None
         self.points_amount = None
         self.gen_method = None
-
+        self.clicked_station = None
         # Создаем список дат
         self.date_list = None
 
@@ -32,6 +35,33 @@ class MyWindow(QWidget):
 
         self.script_dir = os.path.dirname(os.path.abspath(__file__))   # Определяем расположение директории
         self.data_dir = os.path.join(self.script_dir, "Data")          # Определяем расположения папки для файлов
+
+        self.figure = Figure(figsize=(10, 10), dpi=100)   # Фигура для карты сети
+        self.subplot = self.figure.add_subplot(111)       # subplot
+
+        self.figure2 = Figure(figsize=(10, 10), dpi=100)  # Фигура для временных рядов
+        self.axes_1 = self.figure2.add_subplot(3, 1, 1)   # subplots
+        self.axes_2 = self.figure2.add_subplot(3, 1, 2)
+        self.axes_3 = self.figure2.add_subplot(3, 1, 3)
+        self.figure2.subplots_adjust(hspace=0.5)          # устанавливаем отступы между subplots и фигурой
+
+        self.axes_1.set_xlabel('Interval')
+        self.axes_1.set_ylabel('Amplitude')
+        self.axes_1.set_title('Coordinate')
+        self.axes_2.set_xlabel('Interval')
+        self.axes_2.set_ylabel('Amplitude')
+        self.axes_2.set_title('Coordinate')
+        self.axes_3.set_xlabel('Interval')
+        self.axes_3.set_ylabel('Amplitude')
+        self.axes_3.set_title('Coordinate')
+
+        self.canvas = FigureCanvas(self.figure)    # подложки
+        self.canvas2 = FigureCanvas(self.figure2)
+
+        self.subplot.set_aspect('equal')    # стороны графика должны быть равны
+
+        self.canvas.draw()  # рисуем графики
+        self.canvas2.draw()
 
         # Создание кнопок
         self.button1 = QPushButton('Create')
@@ -52,6 +82,8 @@ class MyWindow(QWidget):
         self.choose_interval.addItems(['W', 'D'])
         self.choose_method = QComboBox()
         self.choose_method.addItems(['centralized', 'consistent'])
+        self.show_format = QComboBox()
+        self.show_format.addItems(['XYZ', 'BLH'])
 
         # Создаем подобие командной строки
         self.command_line = QTextEdit(self)
@@ -69,6 +101,8 @@ class MyWindow(QWidget):
         self.label4.setText('Num of points:')
         self.label5 = QLabel(self)
         self.label5.setText('Generation method:')
+        self.label6 = QLabel(self)
+        self.label6.setText('Coordinate system:')
 
         # Создание поля для ввода
         self.textbox = QLineEdit()
@@ -86,6 +120,7 @@ class MyWindow(QWidget):
 
         # функция нажатия кнопки №1 (генерация модели)
         def btn1_press():
+            self.command_line.append('Создание модели...')
             # проверяем корректность введенных пользователем настроек
             if self.textbox.text().isdigit():
                 self.num_periods = int(self.textbox.text())
@@ -161,13 +196,17 @@ class MyWindow(QWidget):
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
-        # Кнопка №3 - Карта геодезической сети (пока только на последнюю дату)
+        # Кнопка №3 - Карта геодезической сети (на последнюю дату)
         def btn3_press():
             try:
                 data = pd.DataFrame(pd.read_csv(self.temp_file_blh_name, delimiter=';'))
                 last_date = data['Date'].max()
                 df_on_date = data[data['Date'] == last_date]
-                SyntheticData.triangulation(df_on_date)
+                SyntheticData.triangulation(df_on_date, self.subplot, self.canvas)
+                # получение изображения графика и отображение на canvas + сохранение в temp
+                filename = os.path.join(self.data_dir, "temp.png")
+                self.figure.savefig(filename)
+
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
@@ -193,6 +232,77 @@ class MyWindow(QWidget):
 
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
+
+        # Нажатие на станцию (событие)
+        def station_click(event):
+            try:
+                ax = self.subplot
+                df = pd.DataFrame(pd.read_csv(self.temp_file_blh_name, delimiter=';'))
+                scatter = ax.scatter(df['L'], df['B'])
+                if event.button == 1 and scatter.contains(event)[0]:
+                    # получаем координаты точки, на которую кликнули
+                    x, y = event.xdata, event.ydata
+                    # находим ближайшую точку в данных
+                    idx = np.sqrt((df['L'] - x) ** 2 + (df['B'] - y) ** 2).idxmin()
+                    # получаем название пункта и выводим его на экран
+                    station_name = df.loc[idx, 'Station']
+                    self.clicked_station = station_name
+                    show_format_change()
+            except Exception as e:
+                self.command_line.append(f'Error: {e}')
+
+        def show_format_change():
+            show_format = self.show_format.currentText()
+            try:
+                if show_format == 'XYZ':
+                    df_xyz = pd.DataFrame(pd.read_csv(self.temp_file_xyz_name, delimiter=';'))
+                    station_data = df_xyz[df_xyz['Station'] == self.clicked_station]
+                    df_X = station_data['X']
+                    df_Y = station_data['Y']
+                    df_Z = station_data['Z']
+                    self.axes_1.clear()
+                    self.axes_2.clear()
+                    self.axes_3.clear()
+                    self.axes_1.plot(df_X)
+                    self.axes_2.plot(df_Y)
+                    self.axes_3.plot(df_Z)
+                    self.axes_1.set_xlabel(f'Interval ({self.interval})')
+                    self.axes_1.set_ylabel('Amplitude')
+                    self.axes_1.set_title('X (ECEF)')
+                    self.axes_2.set_xlabel(f'Interval ({self.interval})')
+                    self.axes_2.set_ylabel('Amplitude')
+                    self.axes_2.set_title('Y (ECEF)')
+                    self.axes_3.set_xlabel(f'Interval ({self.interval})')
+                    self.axes_3.set_ylabel('Amplitude')
+                    self.axes_3.set_title('Z (ECEF)')
+                    self.canvas2.draw()
+                elif show_format == 'BLH':
+                    df_blh = pd.DataFrame(pd.read_csv(self.temp_file_blh_name, delimiter=';'))
+                    station_data = df_blh[df_blh['Station'] == self.clicked_station]
+                    df_B = station_data['B']
+                    df_L = station_data['L']
+                    df_H = station_data['H']
+                    self.axes_1.clear()
+                    self.axes_2.clear()
+                    self.axes_3.clear()
+                    self.axes_1.plot(df_B)
+                    self.axes_2.plot(df_L)
+                    self.axes_3.plot(df_H)
+                    self.axes_1.set_xlabel(f'Interval ({self.interval})')
+                    self.axes_1.set_ylabel('Amplitude')
+                    self.axes_1.set_title('Latitude')
+                    self.axes_2.set_xlabel(f'Interval ({self.interval})')
+                    self.axes_2.set_ylabel('Amplitude')
+                    self.axes_2.set_title('Longitude')
+                    self.axes_3.set_xlabel(f'Interval ({self.interval})')
+                    self.axes_3.set_ylabel('Amplitude')
+                    self.axes_3.set_title('Height')
+                    self.canvas2.draw()
+            except Exception as e:
+                self.command_line.append(f'Error: {e}')
+
+        self.canvas.mpl_connect('button_press_event', station_click)
+        self.show_format.currentIndexChanged.connect(show_format_change)
 
         # Привязка функций к кнопкам
         self.button1.clicked.connect(btn1_press)
@@ -226,13 +336,24 @@ class MyWindow(QWidget):
 
         layout.addWidget(self.save_format, 6, 0)
         layout.addWidget(self.button4, 6, 1)
-        layout.addWidget(self.command_line, 7, 0, 1, -1)
 
-        layout.setRowStretch(7, 0)
-        layout.setColumnStretch(0, 1)  # устанавливаем политику растяжения
-        layout.setColumnStretch(1, 1)
-        layout.setColumnStretch(2, 1)
+        # Add to the layout at row 7, column 0, spanning 1 row and 3 columns
+        layout.addWidget(self.command_line, 7, 0, 1, 3)
 
+        widget = QWidget()
+        widget_layout = QGridLayout()
+        widget_layout.addWidget(self.label6, 0, 0)
+        widget_layout.addWidget(self.show_format, 0, 1)
+        widget.setLayout(widget_layout)
+        layout.addWidget(widget, 0, 4)
+
+        layout.addWidget(self.canvas, 0, 3, 8, 1)
+        layout.addWidget(self.canvas2, 1, 4, 8, 1)
+
+        layout.setRowStretch(7, 1)
+        layout.setRowStretch(0, 1)
+        layout.setColumnStretch(3, 1)  # устанавливаем политику растяжения
+        layout.setColumnStretch(4, 1)  # устанавливаем политику растяжения
         self.setLayout(layout)
 
     # Закрытие окна программы
@@ -247,12 +368,7 @@ class MyWindow(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MyWindow()
-    window.setGeometry(100, 100, 500, 600)  # установка размеров окна
     window.setWindowTitle('Synthetic TimeSeries data app')
-    screen = QDesktopWidget().screenGeometry()  # получаем размер экрана
-    size = window.geometry()  # получаем размеры окна
-    center = (screen.width() - size.width()) / 2, (screen.height() - size.height()) / 2  # вычисляем центр экрана
-    window.move(int(center[0]), int(center[1]))  # перемещаем окно в центр экрана
-    window.show()
+    window.showMaximized()
     sys.exit(app.exec_())
 
