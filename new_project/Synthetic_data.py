@@ -3,11 +3,13 @@ from pandas import DataFrame
 import numpy as np
 import math as m
 from numpy import random, fft
+import geopy.distance
 from geopy.distance import geodesic
-from scipy.spatial import cKDTree, Delaunay
+from scipy.spatial import KDTree, Delaunay
 from scipy.signal import unit_impulse
 import pymap3d
 import matplotlib.pyplot as plt
+import colorednoise
 
 
 # скорости пунктов для линейного тренда
@@ -81,8 +83,7 @@ class SyntheticData(DataFrame):
         return unique_names
 
     # Случайная сеть пунктов
-    def random_points(B, L, H, zone, amount, method):
-        k = 1  # k - количество ближайших соседей для проверки расстояния
+    def random_points(B, L, H, zone, amount, method, min_dist, max_dist):
         start_point = {'Date': 'None', 'Station': 'NSK1', 'B': B, 'L': L, 'H': H}  # исходный пункт
 
         points = [start_point]
@@ -94,19 +95,27 @@ class SyntheticData(DataFrame):
             H = np.random.uniform(start_point['H'] - 25, start_point['H'] + 25)
             point = {'Date': 'None', 'Station': Station, 'B': B, 'L': L, 'H': H}
 
-            distances, indices = cKDTree(list([p['B'], p['L']] for p in points)).query([[B, L]], k=k)
-            '''
-            if len(points) < 6:
-                if all(20000 < geodesic((p['B'], p['L']), (B, L)).meters < 30000 for p in points):
-                    print(f"Distances to nearest neighbors of {Station}: {distances}")
+            # Convert all points to Cartesian coordinates
+            cartesian_points = [pymap3d.geodetic2ecef(point['B'], point['L'], point['H']) for point in points]
+
+            # Build a KD tree from the Cartesian coordinates
+            tree = KDTree(cartesian_points)
+
+            # Find the nearest point to the new point
+            dist, idx = tree.query(pymap3d.geodetic2ecef(point['B'], point['L'], point['H']))
+
+            # Convert the distance from Cartesian to geodetic distance
+            geod_dist = geopy.distance.distance(kilometers=dist).meters / 1000
+
+            # Check if the distance is within the desired range
+            if min_dist <= geod_dist <= max_dist:
+                # Add new point to list
+                points.append(point)
+                if method == 'consistent':
                     start_point = point
-                    points.append(point)
-            else:
-                if sum(1 for p in points if 20000 < geodesic((p['B'], p['L']), (B, L)).meters < 30000) >= 6:
-                    print(f"Distances to nearest neighbors of {Station}: {distances}")
-                    start_point = point
-                    points.append(point)
-                    k += 1
+                elif method == 'centralized':
+                    pass
+
             '''
             if all(20000 < geodesic((p['B'], p['L']), (B, L)).meters for p in points):
                 # if any(20000 < geodesic((p['B'], p['L']), (B, L)).meters < 30000 for p in points)
@@ -118,11 +127,11 @@ class SyntheticData(DataFrame):
                     pass
                 points.append(point)
                 k += 1
-
+            '''
         return pd.DataFrame(points)
 
     # Схема сети (метод триангуляции)
-    def triangulation(df, subplot, canvas):
+    def triangulation(df, subplot, canvas, max_baseline):
         fig = canvas
         ax = subplot
         ax.clear()  # очищаем график перед новой отрисовкой
@@ -149,15 +158,11 @@ class SyntheticData(DataFrame):
             x1, y1 = df.iloc[edge[0]][['L', 'B']]
             x2, y2 = df.iloc[edge[1]][['L', 'B']]
             length = geodesic((y1, x1), (y2, x2)).meters
-            if length <= 80000:  # проверяем длину линии
+            if length <= max_baseline:  # проверяем длину линии
                 label = f'{length:.0f} m'
                 edge_labels.add((min(edge), max(edge), label))
                 ax.plot([x1, x2], [y1, y2], c='black', linewidth=0.5, zorder=2)
-            '''
-            label = f'{geodesic((y1, x1), (y2, x2)).meters:.0f} m'
-            edge_labels.add((min(edge), max(edge), label))
-            ax.plot([x1, x2], [y1, y2], c='black', linewidth=0.5, zorder=2)
-            '''
+
         # рисуем текст с информацией о длинах линий
         for label in edge_labels:
             edge = label[:2]
@@ -175,12 +180,6 @@ class SyntheticData(DataFrame):
             ax.annotate(label_text, (label_x, label_y), rotation=rotation, bbox=bbox, ha='center', va='center',
                         fontsize=6,
                         color='red', zorder=4)
-
-            '''
-            dist = geodesic((y1, x1), (y2, x2)).meters
-            ax.plot([x1, x2], [y1, y2], c='black', linewidth=0.5, zorder=2)
-            ax.annotate(f"{dist:.0f} m", ((x1 + x2) / 2, (y1 + y2) / 2), fontsize=8, color='red')
-            '''
         canvas.draw()
 
     # Заполняем DataFrame координатами для каждой даты и каждого геодезического пункта
@@ -283,14 +282,47 @@ class SyntheticData(DataFrame):
         df[['X', 'Y', 'Z']] = df[['X', 'Y', 'Z']].add(impulse_array, axis=0)
         return df
 
-'''
-data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5, 10)
+    # вывод графика временного ряда
+    def time_series_plot(file_name, station_name):
+        df = pd.read_csv(file_name, delimiter=';')
+        df = df.set_index('Station')
+        df_station = df.loc[station_name]
+        df_station = df_station.reset_index()
+        df_station_X = df_station['X']
+        df_station_Y = df_station['Y']
+        df_station_Z = df_station['Z']
+
+        plt.figure(1)
+        df_station_X.plot()
+        plt.xlabel('Weeks')
+        plt.ylabel('Amplitude')
+        plt.title(f'{station_name} X-coordinate')
+
+        plt.figure(2)
+        df_station_Y.plot()
+        plt.xlabel('Weeks')
+        plt.ylabel('Amplitude')
+        plt.title(f'{station_name} Y-coordinate')
+
+        plt.figure(3)
+        df_station_Z.plot()
+        plt.xlabel('Weeks')
+        plt.ylabel('Amplitude')
+        plt.title(f'{station_name} Z-coordinate')
+
+        plt.show()
+
+
+'''data = SyntheticData.random_points(B=56.012255, L=82.985018, H=141.687, zone=0.5,
+                                   amount=10, method='centralized',
+                                   min_dist=20000, max_dist=30000)
+print(data)
 data_xyz = SyntheticData.my_geodetic2ecef(data)
+date_list = pd.date_range(start='2022-01-01', periods=104, freq='W')
 Synthetic_data = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, date_list))
 print(Synthetic_data)
-SyntheticData.impulse(Synthetic_data)
-plt.show()
-'''
+plt.show()'''
+
 '''
 SyntheticData.harmonics(Synthetic_data, date_list)
 

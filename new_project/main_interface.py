@@ -6,9 +6,8 @@ import shutil
 import pandas as pd
 import numpy as np
 from PyQt5.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
-    QComboBox, QFileDialog, QTextEdit, QDesktopWidget, QSpinBox
+    QComboBox, QFileDialog, QTextEdit, QSpinBox
 from PyQt5 import QtGui
-from plotting_coordinates import nsk1_test
 from Synthetic_data import SyntheticData
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -18,29 +17,30 @@ class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
 
-        # Задаем начальную дату, интервал и общее количество дней
         date_regex = re.compile(r'^\d{4}-\d{2}-\d{2}$')  # выражение для формата даты 'yyyy-mm-dd'
-        self.start_date = None
-        self.interval = None  # pd.Timedelta(days=1)
-        self.num_periods = None
-        self.periods_in_year = None
-        self.points_amount = None
-        self.gen_method = None
-        self.clicked_station = None
-        # Создаем список дат
-        self.date_list = None
+        self.start_date = None          # начальная дата
+        self.interval = None            # интервал наблюдений
+        self.num_periods = None         # кол-во периодов наблюдения (всего)
+        self.periods_in_year = None     # кол-во периодов наблюдения в году
+        self.points_amount = None       # кол-во пунктов
+        self.gen_method = None          # метод генерации
+        self.clicked_station = None     # Переменная, отвечающая за событие нажатия на станцию
+        self.date_list = None           # список дат
+        self.gen_radius = None          # Радиус генерации (относительно стартового пункта)
+        self.min_distance = None        # Минимальное расстояние между пунктами
+        self.max_distance = None        # Максимальное расстояние между пунктами
 
-        self.temp_file_xyz_name = ''  # Переменные для хранения имен временных файлов
+        self.temp_file_xyz_name = ''    # Переменные для хранения имен временных файлов
         self.temp_file_blh_name = ''
 
         self.script_dir = os.path.dirname(os.path.abspath(__file__))   # Определяем расположение директории
         self.data_dir = os.path.join(self.script_dir, "Data")          # Определяем расположения папки для файлов
 
         self.figure = Figure(figsize=(10, 10), dpi=100)   # Фигура для карты сети
-        self.subplot = self.figure.add_subplot(111)       # subplot
+        self.subplot = self.figure.add_subplot(111)
 
         self.figure2 = Figure(figsize=(10, 10), dpi=100)  # Фигура для временных рядов
-        self.axes_1 = self.figure2.add_subplot(3, 1, 1)   # subplots
+        self.axes_1 = self.figure2.add_subplot(3, 1, 1)
         self.axes_2 = self.figure2.add_subplot(3, 1, 2)
         self.axes_3 = self.figure2.add_subplot(3, 1, 3)
         self.figure2.subplots_adjust(hspace=0.5)          # устанавливаем отступы между subplots и фигурой
@@ -58,16 +58,15 @@ class MyWindow(QWidget):
         self.canvas = FigureCanvas(self.figure)    # подложки
         self.canvas2 = FigureCanvas(self.figure2)
 
-        self.subplot.set_aspect('equal')    # стороны графика должны быть равны
+        self.subplot.set_aspect('equal')    # равные стороны графика
 
         self.canvas.draw()  # рисуем графики
         self.canvas2.draw()
 
         # Создание кнопок
         self.button1 = QPushButton('Create')
-        self.button2 = QPushButton('Show plot')
-        self.button3 = QPushButton('Show network map')
-        self.button4 = QPushButton('Save to file')
+        self.button2 = QPushButton('Show network map')
+        self.button3 = QPushButton('Save to file')
 
         # Создание чекбоксов
         self.checkbox1 = QCheckBox('Harmonics')
@@ -75,7 +74,7 @@ class MyWindow(QWidget):
         self.checkbox3 = QCheckBox('Noise')
         self.checkbox4 = QCheckBox('Impulse(random)')
 
-        # Создание выпадающего списка с выбором формата сохранения файла
+        # Создание выпадающих списков
         self.save_format = QComboBox()
         self.save_format.addItems(['XYZ', 'BLH'])
         self.choose_interval = QComboBox()
@@ -85,7 +84,7 @@ class MyWindow(QWidget):
         self.show_format = QComboBox()
         self.show_format.addItems(['XYZ', 'BLH'])
 
-        # Создаем подобие командной строки
+        # Создание командной строки
         self.command_line = QTextEdit(self)
         self.command_line.setStyleSheet("background-color: black; color: white;")
         self.command_line.setFont(QtGui.QFont("Courier", 12))
@@ -103,6 +102,12 @@ class MyWindow(QWidget):
         self.label5.setText('Generation method:')
         self.label6 = QLabel(self)
         self.label6.setText('Coordinate system:')
+        self.label7 = QLabel(self)
+        self.label7.setText('Gen radius (deg):')
+        self.label8 = QLabel(self)
+        self.label8.setText('Min distance (m):')
+        self.label9 = QLabel(self)
+        self.label9.setText('Max distance (m):')
 
         # Создание поля для ввода
         self.textbox = QLineEdit()
@@ -111,10 +116,19 @@ class MyWindow(QWidget):
         self.textbox2 = QLineEdit()
         self.textbox2.resize(280, 40)
         self.textbox2.setText('2022-01-01')
+        self.textbox_gen_radius = QLineEdit()
+        self.textbox_gen_radius.resize(280, 40)
+        self.textbox_gen_radius.setText('0.5')
+        self.textbox_min_distance = QLineEdit()
+        self.textbox_min_distance.resize(280, 40)
+        self.textbox_min_distance.setText('20000')
+        self.textbox_max_distance = QLineEdit()
+        self.textbox_max_distance.resize(280, 40)
+        self.textbox_max_distance.setText('30000')
 
         # SpinBox
         self.points_spinbox = QSpinBox()
-        self.points_spinbox.setRange(3, 15)
+        self.points_spinbox.setRange(3, 100)
         self.points_spinbox.setSingleStep(1)
         self.points_spinbox.setValue(10)
 
@@ -145,8 +159,11 @@ class MyWindow(QWidget):
             # Создаем список дат на основе заданных настроек
             self.date_list = pd.date_range(start=self.start_date, periods=self.num_periods, freq=self.interval)
 
-            self.points_amount = self.points_spinbox.value()    # Принимаем от пользователя количество пунктов
-            self.gen_method = self.choose_method.currentText()  # Принимаем от пользователя метод генерации
+            self.points_amount = self.points_spinbox.value()          # Принимаем от пользователя количество пунктов
+            self.gen_method = self.choose_method.currentText()        # Принимаем от пользователя метод генерации
+            self.gen_radius = float(self.textbox_gen_radius.text())   # Принимаем размер зоны генерации
+            self.min_distance = int(self.textbox_min_distance.text())  # Принимаем минимальное и максимальное расстояние
+            self.max_distance = int(self.textbox_max_distance.text())
 
             # Если остались посторонние временные файлы, удаляем их
             files = os.listdir(self.data_dir)
@@ -156,8 +173,9 @@ class MyWindow(QWidget):
 
             # Создаем временной ряд
             try:
-                data = SyntheticData.random_points(56.012255, 82.985018, 141.687, 0.5,
-                                                   self.points_amount, self.gen_method)
+                data = SyntheticData.random_points(B=56.012255, L=82.985018, H=141.687, zone=self.gen_radius,
+                                                   amount=self.points_amount, method=self.gen_method,
+                                                   min_dist=self.min_distance, max_dist=self.max_distance)
                 data_xyz = SyntheticData.my_geodetic2ecef(data)
                 Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, self.date_list))
             except MemoryError as e:
@@ -189,20 +207,14 @@ class MyWindow(QWidget):
                 self.temp_file_blh_name = temp_file_blh.name  # сохраняем имя временного файла
             self.command_line.append("Модель сгенерирована.")
 
-        # Кнопка №2 - графики временного ряда (пока только для NSK1)
+        # Кнопка №2 - Карта геодезической сети (на последнюю дату)
         def btn2_press():
-            try:
-                nsk1_test(self.temp_file_xyz_name, 'NSK1')
-            except Exception as e:
-                self.command_line.append(f'Error: {e}')
-
-        # Кнопка №3 - Карта геодезической сети (на последнюю дату)
-        def btn3_press():
             try:
                 data = pd.DataFrame(pd.read_csv(self.temp_file_blh_name, delimiter=';'))
                 last_date = data['Date'].max()
                 df_on_date = data[data['Date'] == last_date]
-                SyntheticData.triangulation(df_on_date, self.subplot, self.canvas)
+                SyntheticData.triangulation(df=df_on_date, subplot=self.subplot, canvas=self.canvas,
+                                            max_baseline=self.max_distance)
                 # получение изображения графика и отображение на canvas + сохранение в temp
                 filename = os.path.join(self.data_dir, "temp.png")
                 self.figure.savefig(filename)
@@ -210,8 +222,8 @@ class MyWindow(QWidget):
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
-        # Кнопка №4 - Сохранение файла
-        def btn4_press():
+        # Кнопка №3 - Сохранение файла
+        def btn3_press():
             save_format = self.save_format.currentText()  # Получение формата сохранения файла
             try:
                 # Диалоговое окно для выбора имени и расположения файла для сохранения
@@ -251,6 +263,7 @@ class MyWindow(QWidget):
             except Exception as e:
                 self.command_line.append(f'Error: {e}')
 
+        # Изменение формата отображения временных рядов (событие)
         def show_format_change():
             show_format = self.show_format.currentText()
             try:
@@ -267,13 +280,13 @@ class MyWindow(QWidget):
                     self.axes_2.plot(df_Y)
                     self.axes_3.plot(df_Z)
                     self.axes_1.set_xlabel(f'Interval ({self.interval})')
-                    self.axes_1.set_ylabel('Amplitude')
+                    self.axes_1.set_ylabel('meters')
                     self.axes_1.set_title('X (ECEF)')
                     self.axes_2.set_xlabel(f'Interval ({self.interval})')
-                    self.axes_2.set_ylabel('Amplitude')
+                    self.axes_2.set_ylabel('meters')
                     self.axes_2.set_title('Y (ECEF)')
                     self.axes_3.set_xlabel(f'Interval ({self.interval})')
-                    self.axes_3.set_ylabel('Amplitude')
+                    self.axes_3.set_ylabel('meters')
                     self.axes_3.set_title('Z (ECEF)')
                     self.canvas2.draw()
                 elif show_format == 'BLH':
@@ -289,13 +302,13 @@ class MyWindow(QWidget):
                     self.axes_2.plot(df_L)
                     self.axes_3.plot(df_H)
                     self.axes_1.set_xlabel(f'Interval ({self.interval})')
-                    self.axes_1.set_ylabel('Amplitude')
+                    self.axes_1.set_ylabel('degrees')
                     self.axes_1.set_title('Latitude')
                     self.axes_2.set_xlabel(f'Interval ({self.interval})')
-                    self.axes_2.set_ylabel('Amplitude')
+                    self.axes_2.set_ylabel('degrees')
                     self.axes_2.set_title('Longitude')
                     self.axes_3.set_xlabel(f'Interval ({self.interval})')
-                    self.axes_3.set_ylabel('Amplitude')
+                    self.axes_3.set_ylabel('meters')
                     self.axes_3.set_title('Height')
                     self.canvas2.draw()
             except Exception as e:
@@ -308,7 +321,6 @@ class MyWindow(QWidget):
         self.button1.clicked.connect(btn1_press)
         self.button2.clicked.connect(btn2_press)
         self.button3.clicked.connect(btn3_press)
-        self.button4.clicked.connect(btn4_press)
 
         # Создание макета и добавление элементов управления
         layout = QGridLayout()
@@ -324,22 +336,28 @@ class MyWindow(QWidget):
         layout.addWidget(self.points_spinbox, 3, 2)
         layout.addWidget(self.label5, 4, 1)            # Method
         layout.addWidget(self.choose_method, 4, 2)
+        layout.addWidget(self.label7, 5, 1)                 # Gen radius
+        layout.addWidget(self.textbox_gen_radius, 5, 2)
+        layout.addWidget(self.label8, 6, 1)
+        layout.addWidget(self.textbox_min_distance, 6, 2)   # minimal and maximal distance between points
+        layout.addWidget(self.label9, 7, 1)
+        layout.addWidget(self.textbox_max_distance, 7, 2)
 
         layout.addWidget(self.checkbox1, 0, 0)
         layout.addWidget(self.checkbox2, 1, 0)
         layout.addWidget(self.checkbox3, 2, 0)
         layout.addWidget(self.checkbox4, 3, 0)
 
-        layout.addWidget(self.button1, 5, 0)
-        layout.addWidget(self.button2, 5, 1)
-        layout.addWidget(self.button3, 5, 2)
+        layout.addWidget(self.button1, 8, 0)
+        layout.addWidget(self.button2, 8, 1)
 
-        layout.addWidget(self.save_format, 6, 0)
-        layout.addWidget(self.button4, 6, 1)
+        layout.addWidget(self.save_format, 9, 0)
+        layout.addWidget(self.button3, 9, 1)
 
         # Add to the layout at row 7, column 0, spanning 1 row and 3 columns
-        layout.addWidget(self.command_line, 7, 0, 1, 3)
+        layout.addWidget(self.command_line, 10, 0, 1, 3)
 
+        # Виджет для изменения формата отображения временных рядов
         widget = QWidget()
         widget_layout = QGridLayout()
         widget_layout.addWidget(self.label6, 0, 0)
@@ -347,13 +365,15 @@ class MyWindow(QWidget):
         widget.setLayout(widget_layout)
         layout.addWidget(widget, 0, 4)
 
-        layout.addWidget(self.canvas, 0, 3, 8, 1)
-        layout.addWidget(self.canvas2, 1, 4, 8, 1)
+        # Графики matplotlib
+        layout.addWidget(self.canvas, 0, 3, 11, 1)
+        layout.addWidget(self.canvas2, 1, 4, 11, 1)
 
+        # устанавливаем политику растяжения
         layout.setRowStretch(7, 1)
         layout.setRowStretch(0, 1)
-        layout.setColumnStretch(3, 1)  # устанавливаем политику растяжения
-        layout.setColumnStretch(4, 1)  # устанавливаем политику растяжения
+        layout.setColumnStretch(3, 1)
+        layout.setColumnStretch(4, 1)
         self.setLayout(layout)
 
     # Закрытие окна программы
