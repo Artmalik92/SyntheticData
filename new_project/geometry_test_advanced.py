@@ -4,7 +4,7 @@ import math
 from scipy.stats import chi2
 import pandas as pd
 
-Data = pd.read_csv('data.csv', delimiter=',')
+'''Data = pd.read_csv('data.csv', delimiter=',')
 
 df = Data.set_index('Station')
 df_NSK1 = df.loc['NSK1']
@@ -12,7 +12,7 @@ df_NSK1 = df_NSK1.reset_index()
 df_NSK1_X = df_NSK1['X']
 df_NSK1_Y = df_NSK1['Y']
 df_NSK1_Z = df_NSK1['Z']
-
+'''
 
 # массив координат пунктов на начальную эпоху
 net_0 = (447670.300, 3638117.390, 5202281.560,
@@ -75,10 +75,10 @@ def congruence_test(net_0, net_i, significance_level):
     test_value = chi2.ppf(df=d.shape[0], q=significance_level)
 
     if K > test_value:
-        print('null hipotesis is rejected')
+        print('null hypothesis is rejected')
         hypothesis_status = 1
     else:
-        print('null hipotesis is not rejected ')
+        print('null hypothesis is not rejected ')
         hypothesis_status = 0
 
     return K

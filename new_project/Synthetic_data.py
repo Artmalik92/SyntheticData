@@ -101,14 +101,19 @@ class SyntheticData(DataFrame):
             # Build a KD tree from the Cartesian coordinates
             tree = KDTree(cartesian_points)
 
+            if len(points) < 2:
+                neighbours = 1
+            else:
+                neighbours = 2
+
             # Find the nearest point to the new point
-            dist, idx = tree.query(pymap3d.geodetic2ecef(point['B'], point['L'], point['H']))
+            dist, idx = tree.query(pymap3d.geodetic2ecef(point['B'], point['L'], point['H']), k=neighbours)
 
             # Convert the distance from Cartesian to geodetic distance
             geod_dist = geopy.distance.distance(kilometers=dist).meters / 1000
 
             # Check if the distance is within the desired range
-            if min_dist <= geod_dist <= max_dist:
+            if np.all(min_dist <= geod_dist) and np.all(geod_dist <= max_dist):
                 # Add new point to list
                 points.append(point)
                 if method == 'consistent':
@@ -278,7 +283,7 @@ class SyntheticData(DataFrame):
     def impulse(df, num_periods):
         stations = SyntheticData.unique_names(df)
         N = num_periods * len(stations)  # size of the file
-        impulse_array = unit_impulse(N, 520) * 0.02
+        impulse_array = unit_impulse(N, int(N/2)) * 0.02
         df[['X', 'Y', 'Z']] = df[['X', 'Y', 'Z']].add(impulse_array, axis=0)
         return df
 
