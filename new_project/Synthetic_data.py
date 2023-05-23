@@ -283,7 +283,7 @@ class SyntheticData(DataFrame):
     def impulse(df, num_periods):
         stations = SyntheticData.unique_names(df)
         N = num_periods * len(stations)  # size of the file
-        impulse_array = unit_impulse(N, int(N/2)) * 0.02
+        impulse_array = unit_impulse(N, int(N/2)) * 0.1
         df[['X', 'Y', 'Z']] = df[['X', 'Y', 'Z']].add(impulse_array, axis=0)
         return df
 
