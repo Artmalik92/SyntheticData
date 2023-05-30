@@ -6,7 +6,7 @@ from numpy import random, fft
 import geopy.distance
 from geopy.distance import geodesic
 from scipy.spatial import KDTree, Delaunay
-from scipy.signal import unit_impulse
+from scipy.signal import unit_impulse, butter, lfilter
 import pymap3d
 import matplotlib.pyplot as plt
 import colorednoise
@@ -279,18 +279,45 @@ class SyntheticData(DataFrame):
         df[['X', 'Y', 'Z']] = df[['X', 'Y', 'Z']].add(w[0:N], axis=0)
         return df
 
-    # импульс (скачок измерений)
-    def impulse(df, num_periods):
+    # импульс старая версия
+    '''def impulse(df, num_periods):
         stations = SyntheticData.unique_names(df)
         N = num_periods * len(stations)  # size of the file
+
+        """
+        это код фильтра (Butterworth lowpass filter)
+        imp = unit_impulse(N, int(N/2)) * 0.1
+        b, a = butter(4, 0.2)
+        response = lfilter(b, a, imp)
+        """
+
         impulse_array = unit_impulse(N, int(N/2)) * 0.1
         df[['X', 'Y', 'Z']] = df[['X', 'Y', 'Z']].add(impulse_array, axis=0)
+        return df'''
+
+    # импульс (скачок измерений)
+    def impulse(df, impulse_size, target_date, num_stations):
+        """ Функция генерации импульсов во временном ряде.
+        Входные данные:
+        df - файл с временным рядом (DataFrame),
+        impulse_size - размер импульса (в метрах),
+        target_date - дата измерений, в которые вносится импульс,
+        num_stations - количество станций в сети, в которых будет импульс """
+        # Фильтруем DataFrame по заданной дате и выбираем заданное количество случайных станций из сети
+        filtered_df = df[df['Date'] == target_date].sample(num_stations)
+        impulse_array = ([impulse_size] * 3)  # список с импульсами
+
+        # Обновляем координаты в основном DataFrame
+        for index, row in filtered_df.iterrows():
+            station = row['Station']
+            date = row['Date']
+            df.loc[(df['Station'] == station) & (df['Date'] == date), ['X', 'Y', 'Z']] += impulse_array
         return df
 
     # вывод графика временного ряда
     def time_series_plot(file_name, station_name):
         df = pd.read_csv(file_name, delimiter=';')
-        df = df.set_index('Station')
+        df = file_name.set_index('Station')
         df_station = df.loc[station_name]
         df_station = df_station.reset_index()
         df_station_X = df_station['X']

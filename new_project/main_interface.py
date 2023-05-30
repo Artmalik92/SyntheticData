@@ -29,6 +29,7 @@ class MyWindow(QWidget):
         self.gen_radius = None          # Радиус генерации (относительно стартового пункта)
         self.min_distance = None        # Минимальное расстояние между пунктами
         self.max_distance = None        # Максимальное расстояние между пунктами
+        self.impulse_size = None        # Размер импульса (если импульс включен в настройках)
 
         self.temp_file_xyz_name = ''    # Переменные для хранения имен временных файлов
         self.temp_file_blh_name = ''
@@ -108,6 +109,8 @@ class MyWindow(QWidget):
         self.label8.setText('Min distance (m):')
         self.label9 = QLabel(self)
         self.label9.setText('Max distance (m):')
+        self.label10 = QLabel(self)
+        self.label10.setText('Impulse size (m):')
 
         # Создание поля для ввода
         self.textbox = QLineEdit()
@@ -125,6 +128,9 @@ class MyWindow(QWidget):
         self.textbox_max_distance = QLineEdit()
         self.textbox_max_distance.resize(280, 40)
         self.textbox_max_distance.setText('30000')
+        self.textbox_impulse_size = QLineEdit()
+        self.textbox_impulse_size.resize(280, 40)
+        self.textbox_impulse_size.setText('0.05')
 
         # SpinBox
         self.points_spinbox = QSpinBox()
@@ -162,8 +168,8 @@ class MyWindow(QWidget):
             self.points_amount = self.points_spinbox.value()          # Принимаем от пользователя количество пунктов
             self.gen_method = self.choose_method.currentText()        # Принимаем от пользователя метод генерации
             self.gen_radius = float(self.textbox_gen_radius.text())   # Принимаем размер зоны генерации
-            self.min_distance = int(self.textbox_min_distance.text())  # Принимаем минимальное и максимальное расстояние
-            self.max_distance = int(self.textbox_max_distance.text())
+            self.min_distance = int(self.textbox_min_distance.text())  # Принимаем минимальное
+            self.max_distance = int(self.textbox_max_distance.text())  # и максимальное расстояние
 
             # Если остались посторонние временные файлы, удаляем их
             files = os.listdir(self.data_dir)
@@ -191,7 +197,14 @@ class MyWindow(QWidget):
             if self.checkbox3.isChecked():
                 SyntheticData.noise(Data_interface_xyz, self.num_periods)
             if self.checkbox4.isChecked():
-                SyntheticData.impulse(Data_interface_xyz, self.num_periods)
+                self.impulse_size = float(self.textbox_impulse_size.text())
+                try:
+                    SyntheticData.impulse(df=Data_interface_xyz,
+                                          impulse_size=self.impulse_size,
+                                          target_date='2023-01-01',
+                                          num_stations=3)
+                except Exception as e:
+                    print(e)
 
             # Переводим временной ряд в BLH
             Data_interface_blh = SyntheticData.my_ecef2geodetic(Data_interface_xyz)
@@ -347,6 +360,8 @@ class MyWindow(QWidget):
         layout.addWidget(self.checkbox2, 1, 0)
         layout.addWidget(self.checkbox3, 2, 0)
         layout.addWidget(self.checkbox4, 3, 0)
+        layout.addWidget(self.label10, 4, 0)
+        layout.addWidget(self.textbox_impulse_size, 5, 0)
 
         layout.addWidget(self.button1, 8, 0)
         layout.addWidget(self.button2, 8, 1)
