@@ -2,7 +2,8 @@ import pandas as pd
 from pandas import DataFrame
 import numpy as np
 import math as m
-from numpy import random, fft
+import random
+from numpy import fft
 import geopy.distance
 from geopy.distance import geodesic
 from scipy.spatial import KDTree, Delaunay
@@ -296,23 +297,45 @@ class SyntheticData(DataFrame):
         return df'''
 
     # импульс (скачок измерений)
-    def impulse(df, impulse_size, target_date, num_stations):
+    def impulse(df, impulse_size, target_date=None, num_stations=1, random_dates=0):
         """ Функция генерации импульсов во временном ряде.
         Входные данные:
         df - файл с временным рядом (DataFrame),
         impulse_size - размер импульса (в метрах),
-        target_date - дата измерений, в которые вносится импульс,
-        num_stations - количество станций в сети, в которых будет импульс """
-        # Фильтруем DataFrame по заданной дате и выбираем заданное количество случайных станций из сети
-        filtered_df = df[df['Date'] == target_date].sample(num_stations)
-        impulse_array = ([impulse_size] * 3)  # список с импульсами
+        target_date - дата измерений, в которые вносится импульс (можно задать списком несколько дат),
+        num_stations - количество станций в сети, в которые вносится импульс (по умолчанию 1),
+        random_dates - количество случайных дат для создания импульсов (по умолчанию 0) """
 
-        # Обновляем координаты в основном DataFrame
-        for index, row in filtered_df.iterrows():
-            station = row['Station']
-            date = row['Date']
-            df.loc[(df['Station'] == station) & (df['Date'] == date), ['X', 'Y', 'Z']] += impulse_array
-        return df
+        if target_date is None and random_dates <= 0:
+            raise ValueError("Either 'target_date' or 'random_dates' must be provided.")
+
+        if target_date is not None and random_dates > 0:
+            raise ValueError("Only one of 'target_date' or 'random_dates' can be provided.")
+
+        if isinstance(target_date, list):
+            target_dates = target_date
+        elif target_date is not None:
+            target_dates = [target_date]
+        else:
+            random_dates = min(random_dates, len(df['Date'].unique()))
+            target_dates = random.sample(list(df['Date'].unique()), random_dates)
+            print(target_dates)
+        impulse_array = [impulse_size] * 3  # список с импульсами
+
+        for target_date in target_dates:
+            # Фильтруем DataFrame по заданной дате и выбираем заданное количество случайных станций из сети
+            filtered_df = df[df['Date'] == target_date].sample(n=num_stations)
+
+            # Обновляем координаты в основном DataFrame
+            for index, row in filtered_df.iterrows():
+                station = row['Station']
+                date = row['Date']
+                df.loc[(df['Station'] == station) & (df['Date'] == date), ['X', 'Y', 'Z']] += impulse_array
+
+        if random_dates > 0:
+            print("Выбранные случайные даты для создания импульсов:")
+            for date in target_dates:
+                print(date)
 
     # вывод графика временного ряда
     def time_series_plot(file_name, station_name):

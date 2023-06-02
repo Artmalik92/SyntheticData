@@ -201,8 +201,9 @@ class MyWindow(QWidget):
                 try:
                     SyntheticData.impulse(df=Data_interface_xyz,
                                           impulse_size=self.impulse_size,
-                                          target_date='2023-01-01',
-                                          num_stations=3)
+                                          #target_date='2023-01-01',
+                                          num_stations=3,
+                                          random_dates=3)
                 except Exception as e:
                     print(e)
 
