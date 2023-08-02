@@ -30,6 +30,8 @@ class MyWindow(QWidget):
         self.min_distance = None        # Минимальное расстояние между пунктами
         self.max_distance = None        # Максимальное расстояние между пунктами
         self.impulse_size = None        # Размер импульса (если импульс включен в настройках)
+        self.stations_with_impulse_amount = None   # Количество станций с импульсом
+        self.impulses_amount = None  # Количество импульсов
 
         self.temp_file_xyz_name = ''    # Переменные для хранения имен временных файлов
         self.temp_file_blh_name = ''
@@ -111,11 +113,15 @@ class MyWindow(QWidget):
         self.label9.setText('Max distance (m):')
         self.label10 = QLabel(self)
         self.label10.setText('Impulse size (m):')
+        self.label11 = QLabel(self)
+        self.label11.setText('Stations with impulse:')
+        self.label12 = QLabel(self)
+        self.label12.setText('Impulses amount:')
 
         # Создание поля для ввода
         self.textbox = QLineEdit()
         self.textbox.resize(280, 40)
-        self.textbox.setText('104')
+        self.textbox.setText('52')
         self.textbox2 = QLineEdit()
         self.textbox2.resize(280, 40)
         self.textbox2.setText('2022-01-01')
@@ -131,6 +137,12 @@ class MyWindow(QWidget):
         self.textbox_impulse_size = QLineEdit()
         self.textbox_impulse_size.resize(280, 40)
         self.textbox_impulse_size.setText('0.05')
+        self.textbox_stations_with_impulse_amount = QLineEdit()
+        self.textbox_stations_with_impulse_amount.resize(280, 40)
+        self.textbox_stations_with_impulse_amount.setText('1')
+        self.textbox_impulses_amount = QLineEdit()
+        self.textbox_impulses_amount.resize(280, 40)
+        self.textbox_impulses_amount.setText('1')
 
         # SpinBox
         self.points_spinbox = QSpinBox()
@@ -198,12 +210,20 @@ class MyWindow(QWidget):
                 SyntheticData.noise(Data_interface_xyz, self.num_periods)
             if self.checkbox4.isChecked():
                 self.impulse_size = float(self.textbox_impulse_size.text())
+                self.stations_with_impulse_amount = int(self.textbox_stations_with_impulse_amount.text())
+                self.impulses_amount = int(self.textbox_impulses_amount.text())
                 try:
-                    SyntheticData.impulse(df=Data_interface_xyz,
-                                          impulse_size=self.impulse_size,
-                                          #target_date='2023-01-01',
-                                          num_stations=3,
-                                          random_dates=3)
+                    dates_list, stations_list = SyntheticData.impulse(df=Data_interface_xyz,
+                                                                      impulse_size=self.impulse_size,
+                                                                      #target_date='2023-01-01',
+                                                                      num_stations=self.stations_with_impulse_amount,
+                                                                      random_dates=self.impulses_amount)
+                    dates_list_string = '\n'.join(str(item) for item in dates_list)
+                    stations_list_string = '\n'.join(str(item) for item in stations_list)
+                    self.command_line.append("Выбранные случайные даты для создания импульсов:")
+                    self.command_line.append(dates_list_string)
+                    self.command_line.append("Выбраны следующие станции для создания импульсов:")
+                    self.command_line.append(stations_list_string)
                 except Exception as e:
                     print(e)
 
@@ -284,15 +304,12 @@ class MyWindow(QWidget):
                 if show_format == 'XYZ':
                     df_xyz = pd.DataFrame(pd.read_csv(self.temp_file_xyz_name, delimiter=';'))
                     station_data = df_xyz[df_xyz['Station'] == self.clicked_station]
-                    df_X = station_data['X']
-                    df_Y = station_data['Y']
-                    df_Z = station_data['Z']
                     self.axes_1.clear()
                     self.axes_2.clear()
                     self.axes_3.clear()
-                    self.axes_1.plot(df_X)
-                    self.axes_2.plot(df_Y)
-                    self.axes_3.plot(df_Z)
+                    self.axes_1.plot(pd.to_datetime(station_data['Date']), station_data['X'])
+                    self.axes_2.plot(pd.to_datetime(station_data['Date']), station_data['Y'])
+                    self.axes_3.plot(pd.to_datetime(station_data['Date']), station_data['Z'])
                     self.axes_1.set_xlabel(f'Interval ({self.interval})')
                     self.axes_1.set_ylabel('meters')
                     self.axes_1.set_title('X (ECEF)')
@@ -306,15 +323,12 @@ class MyWindow(QWidget):
                 elif show_format == 'BLH':
                     df_blh = pd.DataFrame(pd.read_csv(self.temp_file_blh_name, delimiter=';'))
                     station_data = df_blh[df_blh['Station'] == self.clicked_station]
-                    df_B = station_data['B']
-                    df_L = station_data['L']
-                    df_H = station_data['H']
                     self.axes_1.clear()
                     self.axes_2.clear()
                     self.axes_3.clear()
-                    self.axes_1.plot(df_B)
-                    self.axes_2.plot(df_L)
-                    self.axes_3.plot(df_H)
+                    self.axes_1.plot(pd.to_datetime(station_data['Date']), station_data['B'])
+                    self.axes_2.plot(pd.to_datetime(station_data['Date']), station_data['L'])
+                    self.axes_3.plot(pd.to_datetime(station_data['Date']), station_data['H'])
                     self.axes_1.set_xlabel(f'Interval ({self.interval})')
                     self.axes_1.set_ylabel('degrees')
                     self.axes_1.set_title('Latitude')
@@ -356,22 +370,26 @@ class MyWindow(QWidget):
         layout.addWidget(self.textbox_min_distance, 6, 2)   # minimal and maximal distance between points
         layout.addWidget(self.label9, 7, 1)
         layout.addWidget(self.textbox_max_distance, 7, 2)
+        layout.addWidget(self.label10, 8, 1)
+        layout.addWidget(self.textbox_impulse_size, 8, 2)
+        layout.addWidget(self.label11, 9, 1)
+        layout.addWidget(self.textbox_stations_with_impulse_amount, 9, 2)
+        layout.addWidget(self.label12, 10, 1)
+        layout.addWidget(self.textbox_impulses_amount, 10, 2)
 
         layout.addWidget(self.checkbox1, 0, 0)
         layout.addWidget(self.checkbox2, 1, 0)
         layout.addWidget(self.checkbox3, 2, 0)
         layout.addWidget(self.checkbox4, 3, 0)
-        layout.addWidget(self.label10, 4, 0)
-        layout.addWidget(self.textbox_impulse_size, 5, 0)
 
-        layout.addWidget(self.button1, 8, 0)
-        layout.addWidget(self.button2, 8, 1)
+        layout.addWidget(self.button1, 11, 0)
+        layout.addWidget(self.button2, 11, 1)
 
-        layout.addWidget(self.save_format, 9, 0)
-        layout.addWidget(self.button3, 9, 1)
+        layout.addWidget(self.save_format, 12, 0)
+        layout.addWidget(self.button3, 12, 1)
 
         # Add to the layout at row 7, column 0, spanning 1 row and 3 columns
-        layout.addWidget(self.command_line, 10, 0, 1, 3)
+        layout.addWidget(self.command_line, 13, 0, 1, 3)
 
         # Виджет для изменения формата отображения временных рядов
         widget = QWidget()
@@ -382,8 +400,8 @@ class MyWindow(QWidget):
         layout.addWidget(widget, 0, 4)
 
         # Графики matplotlib
-        layout.addWidget(self.canvas, 0, 3, 11, 1)
-        layout.addWidget(self.canvas2, 1, 4, 11, 1)
+        layout.addWidget(self.canvas, 0, 3, 14, 1)
+        layout.addWidget(self.canvas2, 1, 4, 14, 1)
 
         # устанавливаем политику растяжения
         layout.setRowStretch(7, 1)

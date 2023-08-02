@@ -319,12 +319,15 @@ class SyntheticData(DataFrame):
         else:
             random_dates = min(random_dates, len(df['Date'].unique()))
             target_dates = random.sample(list(df['Date'].unique()), random_dates)
-            print(target_dates)
         impulse_array = [impulse_size] * 3  # список с импульсами
 
+        # Выбираем случайные станции из DataFrame и сохраняем их в переменной
+        random_stations = df.drop_duplicates(subset='Station')
+        random_stations = random_stations.sample(n=num_stations, replace=False)
+
         for target_date in target_dates:
-            # Фильтруем DataFrame по заданной дате и выбираем заданное количество случайных станций из сети
-            filtered_df = df[df['Date'] == target_date].sample(n=num_stations)
+            # Используем выбранные случайные станции для фильтрации DataFrame по заданной дате
+            filtered_df = df[(df['Date'] == target_date) & df['Station'].isin(random_stations['Station'])]
 
             # Обновляем координаты в основном DataFrame
             for index, row in filtered_df.iterrows():
@@ -333,9 +336,8 @@ class SyntheticData(DataFrame):
                 df.loc[(df['Station'] == station) & (df['Date'] == date), ['X', 'Y', 'Z']] += impulse_array
 
         if random_dates > 0:
-            print("Выбранные случайные даты для создания импульсов:")
-            for date in target_dates:
-                print(date)
+            return target_dates, random_stations['Station']
+
 
     # вывод графика временного ряда
     def time_series_plot(file_name, station_name):
@@ -366,31 +368,4 @@ class SyntheticData(DataFrame):
         plt.title(f'{station_name} Z-coordinate')
 
         plt.show()
-
-
-'''data = SyntheticData.random_points(B=56.012255, L=82.985018, H=141.687, zone=0.5,
-                                   amount=10, method='centralized',
-                                   min_dist=20000, max_dist=30000)
-print(data)
-data_xyz = SyntheticData.my_geodetic2ecef(data)
-date_list = pd.date_range(start='2022-01-01', periods=104, freq='W')
-Synthetic_data = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, date_list))
-print(Synthetic_data)
-plt.show()'''
-
-'''
-SyntheticData.harmonics(Synthetic_data, date_list)
-
-SyntheticData.linear_trend(Synthetic_data, date_list)
-
-SyntheticData.noise(Synthetic_data)
-
-Synthetic_data.to_csv('data_test.csv', sep=';', header=True, index=True)
-
-data_blh = SyntheticData.my_ecef2geodetic(Synthetic_data)
-
-print(data_blh)
-
-'''
-
 

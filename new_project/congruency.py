@@ -144,10 +144,11 @@ class Tests(DataFrame):
                 print("Гипотеза не отвергнута ни для одной пары дат.")"""
 
             print(f"Всего выполнено тестов: {calc}.")
-            print(f"Т-тест, отвергнуто: {len(ttest_rejected_dates)}, "
-                  f"не отвергнуто: {calc - len(ttest_rejected_dates)}")
-            print(f"Хи-квадрат, отвергнуто: {len(chi2_rejected_dates)}, "
-                  f"не отвергнуто: {calc-len(chi2_rejected_dates)}")
+            print(f"Хи-квадрат, не отвергнуто: {calc - len(chi2_rejected_dates)}, "
+                  f"отвергнуто: {len(chi2_rejected_dates)}")
+            print(f"Т-тест, не отвергнуто: {calc - len(ttest_rejected_dates)}, "
+                  f"отвергнуто: {len(ttest_rejected_dates)}")
+
 
             """# Поиск даты, в которой гипотеза была отвергнута в паре с предыдущей и последующей датами
             anomaly_dates = []
@@ -220,7 +221,6 @@ class Tests(DataFrame):
         return df
 
 
-#df = pd.read_csv('Data/testfile_10points+noises+3dates_impulse(2cm).csv', delimiter=';')
-df = pd.read_csv('Data/testfile_3points_noises_anomalies.csv', delimiter=';')
+df = pd.read_csv('Data/testfile_20points_3with_impulse_1impulse(3cm)_2022_05_08.csv', delimiter=';')
 Tests.congruency_test(df=df, method='coordinate_based', calculation='all_dates')
 
