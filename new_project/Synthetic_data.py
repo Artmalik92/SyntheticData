@@ -85,6 +85,10 @@ class SyntheticData(DataFrame):
 
     # Случайная сеть пунктов
     def random_points(B, L, H, zone, amount, method, min_dist, max_dist):
+
+        if min_dist > max_dist:
+            raise ValueError("Minimum distance cannot be greater than maximum distance")
+
         start_point = {'Date': 'None', 'Station': 'NSK1', 'B': B, 'L': L, 'H': H}  # исходный пункт
 
         points = [start_point]

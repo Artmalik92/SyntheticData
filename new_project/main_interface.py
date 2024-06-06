@@ -5,9 +5,9 @@ import tempfile
 import shutil
 import pandas as pd
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
+from PySide2.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
     QComboBox, QFileDialog, QTextEdit, QSpinBox
-from PyQt5 import QtGui
+from PySide2 import QtGui
 from Synthetic_data import SyntheticData
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -420,7 +420,12 @@ class MyWindow(QWidget):
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
+
+    if not QApplication.instance():
+        app = QApplication(sys.argv)
+    else:
+        app = QApplication.instance()
+
     window = MyWindow()
     window.setWindowTitle('Synthetic TimeSeries data app')
     window.showMaximized()

@@ -1,9 +1,10 @@
 import numpy as np
+import scipy.stats
 from numpy.linalg import pinv
 import pandas as pd
 from pandas import DataFrame
 from colorama import init, Fore
-from scipy.stats import ttest_1samp, shapiro, chi2
+from scipy.stats import ttest_1samp, shapiro, chi2, f_oneway, chisquare
 from scipy import signal
 from Synthetic_data import SyntheticData
 import matplotlib.pyplot as plt
@@ -20,6 +21,7 @@ class Tests(DataFrame):
 
         ttest_rejected_dates = []
         chi2_rejected_dates = []  # список дат с отвергнутой гипотезой
+        f_rejected_dates = []
 
         def all_dates():
             """ вычисление для всех дат в файле """
@@ -105,14 +107,44 @@ class Tests(DataFrame):
             pvalue = ttest_1samp(a=raz_list, popmean=0, nan_policy='omit')[1]
 
             # Chi2 test
-            sigma_0 = 0.005
+            sigma_0 = 0.0075
             d = np.array(raz_list)
             Qdd = np.eye(d.shape[0])
             K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
             test_value = chi2.ppf(df=d.shape[0], q=threshold)
 
+            """
+            это статистика через scipy.chisquare - пока не разобрался, не используем
+            
+            exp = np.ones_like(raz_list)
+            statistics_2 = chisquare(f_obs=raz_list, f_exp=exp)
+            print(statistics_2)
+            """
+
+            # F-test
+            # Calculate the variances of the two samples
+            # Perform the F-test
+
+            values_0_list = list(values_0.values())
+            values_i_list = list(values_i.values())
+
+            f_val, p_val = f_oneway(values_0_list, values_i_list)
+            alpha_for_f = 0.05
+            p_val_mean = np.mean(p_val)
+            f_val_mean = np.mean(f_val)
+
             # Shapiro test
             print('Shapiro:', shapiro(raz_list))
+
+            print("F-test: ", end="")
+            if p_val_mean > alpha_for_f:
+                f_rejected_dates.append((start_date, end_date, alpha_for_f, p_val_mean))
+                print(Fore.RED + f"The variances of the two samples are significantly different,"
+                                 f" testvalue = {round(alpha_for_f, 3)}, p = {round(p_val_mean, 3)}, f = {round(f_val_mean, 3)}")
+            else:
+                print(Fore.GREEN + f"The variances of the two samples are not significantly different,"
+                                   f" testvalue = {round(alpha_for_f, 3)}, p = {round(p_val_mean, 3)}, f = {round(f_val_mean, 3)}")
+            print(Fore.RESET, end="")
 
             print("T-test: ", end="")
             if pvalue <= threshold:
@@ -144,6 +176,8 @@ class Tests(DataFrame):
                 print("Гипотеза не отвергнута ни для одной пары дат.")"""
 
             print(f"Всего выполнено тестов: {calc}.")
+            print(f"F-test, не отвергнуто: {calc - len(f_rejected_dates)}, "
+                  f"отвергнуто: {len(f_rejected_dates)}")
             print(f"Хи-квадрат, не отвергнуто: {calc - len(chi2_rejected_dates)}, "
                   f"отвергнуто: {len(chi2_rejected_dates)}")
             print(f"Т-тест, не отвергнуто: {calc - len(ttest_rejected_dates)}, "
@@ -174,7 +208,7 @@ class Tests(DataFrame):
             specific_date(df=df, start_date=start_date, end_date=end_date)
 
     def detrend_df(df):
-        """ функция выполняет детренд файла DataFrame. Пока не работает( """
+        """ функция выполняет детренд файла DataFrame. Увы, пока не работает( """
         print(df)
         # Получение уникальных названий пунктов
         station_names = df['Station'].unique()
@@ -221,6 +255,6 @@ class Tests(DataFrame):
         return df
 
 
-df = pd.read_csv('Data/testfile_20points_3with_impulse_1impulse(3cm)_2022_05_08.csv', delimiter=';')
+df = pd.read_csv('Data/testfile_20points_2with_impulse_1impulse(3cm)_2022_01_16.csv', delimiter=';')
 Tests.congruency_test(df=df, method='coordinate_based', calculation='all_dates')
 
