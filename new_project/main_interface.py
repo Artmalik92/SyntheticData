@@ -36,8 +36,13 @@ class MyWindow(QWidget):
         self.temp_file_xyz_name = ''    # Переменные для хранения имен временных файлов
         self.temp_file_blh_name = ''
 
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))   # Определяем расположение директории
-        self.data_dir = os.path.join(self.script_dir, "Data")          # Определяем расположения папки для файлов
+        folder_name = "Data"  # Папка для временных файлов и сохранения
+
+        if not os.path.exists(folder_name):  # Проверяем наличие папки Data
+            os.makedirs(folder_name)
+        else:
+            self.script_dir = os.path.dirname(os.path.abspath(__file__))  # Определяем расположение директории
+            self.data_dir = os.path.join(self.script_dir, "Data")  # Определяем расположения папки для файлов
 
         self.figure = Figure(figsize=(10, 10), dpi=100)   # Фигура для карты сети
         self.subplot = self.figure.add_subplot(111)

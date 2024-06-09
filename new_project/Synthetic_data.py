@@ -10,7 +10,7 @@ from scipy.spatial import KDTree, Delaunay
 from scipy.signal import unit_impulse, butter, lfilter
 import pymap3d
 import matplotlib.pyplot as plt
-import colorednoise
+# import colorednoise
 
 
 # скорости пунктов для линейного тренда
