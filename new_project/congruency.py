@@ -21,6 +21,7 @@ class Tests(DataFrame):
 
         ttest_rejected_dates = []
         chi2_rejected_dates = []  # список дат с отвергнутой гипотезой
+        chi2_ai_rejected_dates = []
         f_rejected_dates = []
 
         def all_dates():
@@ -107,11 +108,32 @@ class Tests(DataFrame):
             pvalue = ttest_1samp(a=raz_list, popmean=0, nan_policy='omit')[1]
 
             # Chi2 test
-            sigma_0 = 0.0075
-            d = np.array(raz_list)
-            Qdd = np.eye(d.shape[0])
+            # sigma_0 = 0.0075              # СКО шума
+            std_dev = np.std(np.array(raz_list))
+            sigma_0 = std_dev
+            print('std dev of data:', sigma_0)
+            d = np.array(raz_list)        # Конвертирование в массив Numpy
+            Qdd = np.eye(d.shape[0])      # единичная матрица формы d
+            '''
+            статистика теста К
+            d.transpose()  - транспонируем матрицу d
+            dot(pinv(Qdd)) - скалярное произведение транспонированного массива d с псевдообратным значением Qdd
+            dot(d)         - вычисляет скалярное произведение результата с исходным массивом d.
+            sigma_0 ** 2   - Все выражение делится на данное значение, которое предст. собой СКО шума.
+            '''
             K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
             test_value = chi2.ppf(df=d.shape[0], q=threshold)
+
+
+            # Calculate the expected values (assuming equal probabilities)
+            expected = np.ones_like(raz_list) * 0.00001
+            # Calculate the test statistic (K)
+            K_ai = np.sum(((np.array(raz_list) - expected) ** 2) / expected)
+            # Calculate the critical value
+            alpha = 0.05  # significance level
+            deg_of_freedom = len(raz_list) - 1  # degrees of freedom
+            critical_value = chi2.ppf(q=1-alpha, df=deg_of_freedom)
+
 
             """
             это статистика через scipy.chisquare - пока не разобрался, не используем
@@ -136,7 +158,7 @@ class Tests(DataFrame):
             # Shapiro test
             print('Shapiro:', shapiro(raz_list))
 
-            print("F-test: ", end="")
+            """print("F-test: ", end="")
             if p_val_mean > alpha_for_f:
                 f_rejected_dates.append((start_date, end_date, alpha_for_f, p_val_mean))
                 print(Fore.RED + f"The variances of the two samples are significantly different,"
@@ -152,7 +174,7 @@ class Tests(DataFrame):
                 print(Fore.RED + f"Нулевая гипотеза отвергается, pvalue = {round(pvalue, 3)}")
             else:
                 print(Fore.GREEN + f"Нулевая гипотеза не отвергается, pvalue = {round(pvalue, 3)}")
-            print(Fore.RESET, end="")
+            print(Fore.RESET, end="")"""
 
             print("chi2-test: ", end="")
             if K > test_value:
@@ -161,6 +183,15 @@ class Tests(DataFrame):
             else:
                 print(Fore.GREEN + f"Нулевая гипотеза не отвергается,"
                                    f" testvalue = {round(test_value, 3)}, K = {round(K, 3)}")
+            print(Fore.RESET, end="")
+
+            print("chi2-test by AI: ", end="")
+            if K_ai > critical_value:
+                chi2_ai_rejected_dates.append((start_date, end_date, critical_value, K_ai))
+                print(Fore.RED + f"Нулевая гипотеза отвергается, testvalue = {round(critical_value, 3)}, K = {round(K_ai, 3)}")
+            else:
+                print(Fore.GREEN + f"Нулевая гипотеза не отвергается,"
+                                   f" testvalue = {round(critical_value, 3)}, K = {round(K_ai, 3)}")
             print(Fore.RESET)
 
         if calculation == "all_dates":
@@ -180,6 +211,8 @@ class Tests(DataFrame):
                   f"отвергнуто: {len(f_rejected_dates)}")
             print(f"Хи-квадрат, не отвергнуто: {calc - len(chi2_rejected_dates)}, "
                   f"отвергнуто: {len(chi2_rejected_dates)}")
+            print(f"Хи-квадрат AI, не отвергнуто: {calc - len(chi2_ai_rejected_dates)}, "
+                  f"отвергнуто: {len(chi2_ai_rejected_dates)}")
             print(f"Т-тест, не отвергнуто: {calc - len(ttest_rejected_dates)}, "
                   f"отвергнуто: {len(ttest_rejected_dates)}")
 
