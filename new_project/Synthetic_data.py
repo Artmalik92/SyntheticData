@@ -39,6 +39,15 @@ class SyntheticData(DataFrame):
 
     # BLH to XYZ
     def my_geodetic2ecef(df):
+        """
+        Перевод координат из системы BLH в систему XYZ.
+
+        Параметры:
+        df (DataFrame): DataFrame с координатами в системе BLH
+
+        Возвращает:
+        DataFrame: DataFrame с координатами в системе XYZ
+        """
         # создание нового DataFrame с обновленными координатами
         df_new = pd.DataFrame({'Date': df['Date'],
                                'Station': df['Station'],
@@ -57,6 +66,15 @@ class SyntheticData(DataFrame):
 
     # XYZ to BLH
     def my_ecef2geodetic(df):
+        """
+        Перевод координат из системы XYZ в систему BLH.
+
+        Параметры:
+        df (DataFrame): DataFrame с координатами в системе XYZ
+
+        Возвращает:
+        DataFrame: DataFrame с координатами в системе BLH
+        """
         # создание нового DataFrame с обновленными координатами
         df_new = pd.DataFrame({'Date': df['Date'],
                                'Station': df['Station'],
@@ -73,8 +91,16 @@ class SyntheticData(DataFrame):
 
         return df_new
 
-    # вспомогательная функция для создания временных рядов
     def unique_names(df):
+        """
+        Возвращает список уникальных имен станций в DataFrame.
+
+        Параметры:
+        df (DataFrame): DataFrame с информацией о станциях
+
+        Возвращает:
+        list: список уникальных имен станций
+        """
         unique_names = []
         for name in df["Station"]:
             if name not in unique_names:
@@ -85,7 +111,22 @@ class SyntheticData(DataFrame):
 
     # Случайная сеть пунктов
     def random_points(B, L, H, zone, amount, method, min_dist, max_dist):
+        """
+        Генерирует случайную сеть пунктов в заданной зоне.
 
+        Параметры:
+        B (float): начальная широта
+        L (float): начальная долгота
+        H (float): начальная высота
+        zone (float): зона генерации пунктов
+        amount (int): количество пунктов для генерации
+        method (str): метод генерации ('consistent' или 'centralized')
+        min_dist (float): минимальное расстояние между пунктами
+        max_dist (float): максимальное расстояние между пунктами
+
+        Возвращает:
+        DataFrame: DataFrame с информацией о случайных пунктах
+        """
         if min_dist > max_dist:
             raise ValueError("Minimum distance cannot be greater than maximum distance")
 
@@ -142,6 +183,15 @@ class SyntheticData(DataFrame):
 
     # Схема сети (метод триангуляции)
     def triangulation(df, subplot, canvas, max_baseline):
+        """
+        Построение схемы сети методом триангуляции.
+
+        Параметры:
+        df (DataFrame): DataFrame с координатами пунктов сети
+        subplot (matplotlib.axes.Axes): объект axes для отрисовки графика
+        canvas (matplotlib.figure.FigureCanvas): объект canvas для отрисовки графика
+        max_baseline (float): максимальная длина базовой линии
+        """
         fig = canvas
         ax = subplot
         ax.clear()  # очищаем график перед новой отрисовкой
@@ -194,6 +244,16 @@ class SyntheticData(DataFrame):
 
     # Заполняем DataFrame координатами для каждой даты и каждого геодезического пункта
     def create_dataframe(df, date_list):
+        """
+        Создание DataFrame с координатами для каждой даты и каждого геодезического пункта.
+
+        Параметры:
+        df (DataFrame): файл с координатами пунктов сети
+        date_list (list): список дат
+
+        Возвращает:
+        DataFrame: файл с координатами для каждой даты и каждого геодезического пункта
+        """
         points = df.to_dict('records')
         coordinates = [(p['X'], p['Y'], p['Z']) for p in points]
         stations = [p['Station'] for p in points]
@@ -210,6 +270,17 @@ class SyntheticData(DataFrame):
 
     # добавляем годовые и полугодовые колебания
     def harmonics(df, date_list, periods_in_year):
+        """
+        Добавление годовых и полугодовых колебаний в временном ряде.
+
+        Параметры:
+        df (DataFrame): файл с временным рядом
+        date_list (list): список дат
+        periods_in_year (int): количество периодов измерений в году
+
+        Возвращает:
+        DataFrame: файл с временным рядом, содержащим годовые и полугодовые колебания
+        """
         stations = SyntheticData.unique_names(df)
         x_harmonic_array = []
         y_harmonic_array = []
@@ -244,6 +315,17 @@ class SyntheticData(DataFrame):
 
     # линейный тренд
     def linear_trend(df, date_list, periods_in_year):
+        """
+        Добавление линейного тренда в временном ряде.
+
+        Параметры:
+        df (DataFrame): файл с временным рядом
+        date_list (list): список дат
+        periods_in_year (int): количество периодов измерений в году
+
+        Возвращает:
+        DataFrame: файл с временным рядом, содержащим линейный тренд
+        """
         stations = SyntheticData.unique_names(df)
         row_vx = []
         row_vy = []
@@ -267,6 +349,16 @@ class SyntheticData(DataFrame):
 
     # шум
     def noise(df, num_periods):
+        """
+        Генерация шума в временном ряде.
+
+        Параметры:
+        df (DataFrame): файл с временным рядом
+        num_periods (int): количество периодов измерений в файле
+
+        Возвращает:
+        DataFrame: файл с временным рядом, содержащим шум
+        """
         stations = SyntheticData.unique_names(df)
         kappa = -1                       # Flicker noise
         N = num_periods * len(stations)  # size of the file
@@ -302,14 +394,19 @@ class SyntheticData(DataFrame):
 
     # импульс (скачок измерений)
     def impulse(df, impulse_size, target_date=None, num_stations=1, random_dates=0):
-        """ Функция генерации импульсов во временном ряде.
-        Входные данные:
-        df - файл с временным рядом (DataFrame),
-        impulse_size - размер импульса (в метрах),
-        target_date - дата измерений, в которые вносится импульс (можно задать списком несколько дат),
-        num_stations - количество станций в сети, в которые вносится импульс (по умолчанию 1),
-        random_dates - количество случайных дат для создания импульсов (по умолчанию 0) """
+        """
+        Генерация импульсов в временном ряде.
 
+        Параметры:
+        df (DataFrame): файл с временным рядом
+        impulse_size (float): размер импульса в метрах
+        target_date (datetime.date or list of datetime.date): дата измерений, в которые вносится импульс
+        num_stations (int): количество станций в сети, в которые вносится импульс
+        random_dates (int): количество случайных дат для создания импульсов
+
+        Возвращает:
+        None или list of datetime.date: если random_dates > 0, то возвращает список случайных дат
+        """
         if target_date is None and random_dates <= 0:
             raise ValueError("Either 'target_date' or 'random_dates' must be provided.")
 
