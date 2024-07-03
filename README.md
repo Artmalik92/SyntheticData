@@ -4,17 +4,17 @@
 
 ## **Класс SyntheticData**
 
-Класс `SyntheticData` наследуется от `DataFrame` и содержит следующие методы:
+Класс `SyntheticData` содержит следующие методы:
 
 ### Методы
 
 #### `my_geodetic2ecef(df)`
 
-Конвертирует координаты из геодезической системы в систему ECEF (Earth-Centered, Earth-Fixed).
+Конвертирует координаты из системы BLH в XYZ.
 
 #### `my_ecef2geodetic(df)`
 
-Конвертирует координаты из системы ECEF в геодезическую систему.
+Конвертирует координаты из системы XYZ в BLH.
 
 #### `unique_names(df)`
 
@@ -48,30 +48,19 @@
 
 Добавляет импульс к координатам.
 
-#### `time_series_plot(file_name, station_name)`
-
-Выводит график временного ряда для заданной станции.
-
 ## **Пример использования**
 
-Show Diff
-
-`1synthetic_data = SyntheticData() 2df = synthetic_data.random_points(B=50, L=100, H=200, zone=10, amount=10, method='consistent', min_dist=5, max_dist=20) 3df = synthetic_data.create_dataframe(df, date_list=['2020-01-01', '2020-01-02', ...]) 4df = synthetic_data.harmonics(df, date_list, periods_in_year=365) 5df = synthetic_data.linear_trend(df, date_list, periods_in_year=365) 6df = synthetic_data.noise(df, num_periods=100) 7df = synthetic_data.impulse(df, impulse_size=0.1, target_date='2020-01-01', num_stations=1) 8synthetic_data.time_series_plot('data.csv', 'Station1')`
-
-## **Зависимости**
-
--   `pandas`
--   `numpy`
--   `math`
--   `random`
--   `scipy`
--   `pymap3d`
--   `matplotlib`
-
-## **Лицензия**
-
-MIT License
+```python
+synthetic_data = SyntheticData() 
+df = synthetic_data.random_points(B=50, L=100, H=200, zone=10, amount=10, method='consistent', min_dist=5, max_dist=20) 
+df = synthetic_data.create_dataframe(df, date_list=['2020-01-01', '2020-01-02', ...]) 
+df = synthetic_data.harmonics(df, date_list, periods_in_year=365) 
+df = synthetic_data.linear_trend(df, date_list, periods_in_year=365) 
+df = synthetic_data.noise(df, num_periods=100) 
+df = synthetic_data.impulse(df, impulse_size=0.1, target_date='2020-01-01', num_stations=1) 
+```
 
 ## **Автор**
 
-\[Ваше имя\]
+Артем Маликов 
+a.o.malikov@mail.ru
