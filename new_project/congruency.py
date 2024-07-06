@@ -86,7 +86,7 @@ class Tests(DataFrame):
             ''' метод, основанный на вычислении разностей базовых линий на разные эпохи '''
             if method == 'line_based':
                 values_0 = baselines(start_date)  # Словари для базовых линий на начальную
-                values_i = baselines(end_date)    # и i-ую эпоху
+                values_i = baselines(end_date)  # и i-ую эпоху
                 # Заполнение списка разностями
                 for line1 in values_0:
                     for line2 in values_i:
@@ -108,12 +108,12 @@ class Tests(DataFrame):
             pvalue = ttest_1samp(a=raz_list, popmean=0, nan_policy='omit')[1]
 
             # Chi2 test
-            # sigma_0 = 0.0075              # СКО шума
-            std_dev = np.std(np.array(raz_list))
-            sigma_0 = std_dev
+            sigma_0 = 0.0075              # СКО шума
+            # std_dev = np.std(np.array(raz_list))
+            # sigma_0 = std_dev
             print('std dev of data:', sigma_0)
-            d = np.array(raz_list)        # Конвертирование в массив Numpy
-            Qdd = np.eye(d.shape[0])      # единичная матрица формы d
+            d = np.array(raz_list)  # Конвертирование в массив Numpy
+            Qdd = np.eye(d.shape[0])  # единичная матрица формы d
             '''
             статистика теста К
             d.transpose()  - транспонируем матрицу d
@@ -124,7 +124,6 @@ class Tests(DataFrame):
             K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
             test_value = chi2.ppf(df=d.shape[0], q=threshold)
 
-
             # Calculate the expected values (assuming equal probabilities)
             expected = np.ones_like(raz_list) * 0.00001
             # Calculate the test statistic (K)
@@ -132,41 +131,18 @@ class Tests(DataFrame):
             # Calculate the critical value
             alpha = 0.05  # significance level
             deg_of_freedom = len(raz_list) - 1  # degrees of freedom
-            critical_value = chi2.ppf(q=1-alpha, df=deg_of_freedom)
-
+            critical_value = chi2.ppf(q=1 - alpha, df=deg_of_freedom)
 
             """
             это статистика через scipy.chisquare - пока не разобрался, не используем
-            
+
             exp = np.ones_like(raz_list)
             statistics_2 = chisquare(f_obs=raz_list, f_exp=exp)
             print(statistics_2)
             """
 
-            # F-test
-            # Calculate the variances of the two samples
-            # Perform the F-test
-
-            values_0_list = list(values_0.values())
-            values_i_list = list(values_i.values())
-
-            f_val, p_val = f_oneway(values_0_list, values_i_list)
-            alpha_for_f = 0.05
-            p_val_mean = np.mean(p_val)
-            f_val_mean = np.mean(f_val)
-
             # Shapiro test
             print('Shapiro:', shapiro(raz_list))
-
-            """print("F-test: ", end="")
-            if p_val_mean > alpha_for_f:
-                f_rejected_dates.append((start_date, end_date, alpha_for_f, p_val_mean))
-                print(Fore.RED + f"The variances of the two samples are significantly different,"
-                                 f" testvalue = {round(alpha_for_f, 3)}, p = {round(p_val_mean, 3)}, f = {round(f_val_mean, 3)}")
-            else:
-                print(Fore.GREEN + f"The variances of the two samples are not significantly different,"
-                                   f" testvalue = {round(alpha_for_f, 3)}, p = {round(p_val_mean, 3)}, f = {round(f_val_mean, 3)}")
-            print(Fore.RESET, end="")
 
             print("T-test: ", end="")
             if pvalue <= threshold:
@@ -174,7 +150,7 @@ class Tests(DataFrame):
                 print(Fore.RED + f"Нулевая гипотеза отвергается, pvalue = {round(pvalue, 3)}")
             else:
                 print(Fore.GREEN + f"Нулевая гипотеза не отвергается, pvalue = {round(pvalue, 3)}")
-            print(Fore.RESET, end="")"""
+            print(Fore.RESET, end="")
 
             print("chi2-test: ", end="")
             if K > test_value:
@@ -188,7 +164,8 @@ class Tests(DataFrame):
             print("chi2-test by AI: ", end="")
             if K_ai > critical_value:
                 chi2_ai_rejected_dates.append((start_date, end_date, critical_value, K_ai))
-                print(Fore.RED + f"Нулевая гипотеза отвергается, testvalue = {round(critical_value, 3)}, K = {round(K_ai, 3)}")
+                print(
+                    Fore.RED + f"Нулевая гипотеза отвергается, testvalue = {round(critical_value, 3)}, K = {round(K_ai, 3)}")
             else:
                 print(Fore.GREEN + f"Нулевая гипотеза не отвергается,"
                                    f" testvalue = {round(critical_value, 3)}, K = {round(K_ai, 3)}")
@@ -215,7 +192,6 @@ class Tests(DataFrame):
                   f"отвергнуто: {len(chi2_ai_rejected_dates)}")
             print(f"Т-тест, не отвергнуто: {calc - len(ttest_rejected_dates)}, "
                   f"отвергнуто: {len(ttest_rejected_dates)}")
-
 
             """# Поиск даты, в которой гипотеза была отвергнута в паре с предыдущей и последующей датами
             anomaly_dates = []
@@ -256,7 +232,6 @@ class Tests(DataFrame):
 
         # Итерация по каждому уникальному пункту
         for station_name in station_names:
-
             # Выбор только строк, относящихся к текущему пункту
             station_rows = df[df['Station'] == station_name]
 
@@ -289,5 +264,4 @@ class Tests(DataFrame):
 
 
 df = pd.read_csv('Data/testfile_20points_2with_impulse_1impulse(3cm)_2022_01_16.csv', delimiter=';')
-Tests.congruency_test(df=df, method='coordinate_based', calculation='all_dates')
-
+Tests.congruency_test(df=df, method='line_based', calculation='all_dates')
