@@ -9,6 +9,10 @@ from scipy import signal
 from Synthetic_data import SyntheticData
 import matplotlib.pyplot as plt
 
+"""
+Это устаревшая версия. Новая версия находится в файле tests.py
+"""
+
 
 class Tests(DataFrame):
     def __init__(self):
