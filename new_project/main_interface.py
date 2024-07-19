@@ -195,16 +195,30 @@ class MyWindow(QWidget):
                     os.remove(os.path.join(self.data_dir, file_name))
 
             # Создаем временной ряд
-            try:
-                data = SyntheticData.random_points(B=56.012255, L=82.985018, H=141.687, zone=self.gen_radius,
-                                                   amount=self.points_amount, method=self.gen_method,
-                                                   min_dist=self.min_distance, max_dist=self.max_distance)
-                data_xyz = SyntheticData.my_geodetic2ecef(data)
-                Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe(data_xyz, self.date_list))
-            except MemoryError as e:
-                self.command_line.append(f'Memory error: {e}')
-            except Exception as e:
-                self.command_line.append(f'Exception: {e}')
+            #try:
+            # X=436463.00052670995, Y=3547037.885359012, Z=5265322.612163001
+            # B=56.012255, L=82.985018, H=141.687
+            """data = SyntheticData.random_points_old(B=56.012255, L=82.985018, H=141.687,
+                                                   amount=self.points_amount,
+                                                   min_dist=self.min_distance,
+                                                   max_dist=self.max_distance, method='centralized', zone=0.5)
+
+            data_xyz = SyntheticData.my_geodetic2ecef(data)
+
+            Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe_old(data_xyz, self.date_list))"""
+
+            data = SyntheticData.random_points(X=436463.00052670995, Y=3547037.885359012, Z=5265322.612163001,
+                                                   amount=self.points_amount,
+                                                   min_dist=self.min_distance,
+                                                   max_dist=self.max_distance)
+
+            Data_interface_xyz = pd.DataFrame(SyntheticData.create_dataframe(data, self.date_list))
+
+            #except MemoryError as e:
+                #self.command_line.append(f'Memory error: {e}')
+            #except Exception as e:
+                #self.command_line.append(f'Exception: {e}')
+
 
             # Проверяем отмеченные пользователем чекбоксы
             if self.checkbox1.isChecked():

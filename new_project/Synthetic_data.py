@@ -37,7 +37,6 @@ class SyntheticData(DataFrame):
     def __init__(self):
         super().__init__()
 
-    # BLH to XYZ
     def my_geodetic2ecef(df):
         """
         Перевод координат из системы BLH в систему XYZ.
@@ -48,6 +47,9 @@ class SyntheticData(DataFrame):
         Возвращает:
         DataFrame: DataFrame с координатами в системе XYZ
         """
+
+        df = pd.DataFrame(df)
+
         # создание нового DataFrame с обновленными координатами
         df_new = pd.DataFrame({'Date': df['Date'],
                                'Station': df['Station'],
@@ -64,7 +66,6 @@ class SyntheticData(DataFrame):
 
         return df_new
 
-    # XYZ to BLH
     def my_ecef2geodetic(df):
         """
         Перевод координат из системы XYZ в систему BLH.
@@ -91,26 +92,7 @@ class SyntheticData(DataFrame):
 
         return df_new
 
-    def unique_names(df):
-        """
-        Возвращает список уникальных имен станций в DataFrame.
-
-        Параметры:
-        df (DataFrame): DataFrame с информацией о станциях
-
-        Возвращает:
-        list: список уникальных имен станций
-        """
-        unique_names = []
-        for name in df["Station"]:
-            if name not in unique_names:
-                unique_names.append(name)
-            else:
-                break
-        return unique_names
-
-    # Случайная сеть пунктов
-    def random_points(B, L, H, zone, amount, method, min_dist, max_dist):
+    def random_points_old(B, L, H, zone, amount, method, min_dist, max_dist):
         """
         Генерирует случайную сеть пунктов в заданной зоне.
 
@@ -181,7 +163,64 @@ class SyntheticData(DataFrame):
             '''
         return pd.DataFrame(points)
 
-    # Схема сети (метод триангуляции)
+    def random_points(X, Y, Z, amount, min_dist, max_dist):
+        """
+        Генерирует случайную сеть пунктов в заданной зоне.
+
+        Параметры:
+        B (float): начальная широта
+        L (float): начальная долгота
+        H (float): начальная высота
+        zone (float): зона генерации пунктов
+        amount (int): количество пунктов для генерации
+        method (str): метод генерации ('consistent' или 'centralized')
+        min_dist (float): минимальное расстояние между пунктами
+        max_dist (float): максимальное расстояние между пунктами
+
+        Возвращает:
+        DataFrame: DataFrame с информацией о случайных пунктах
+        """
+        if min_dist > max_dist:
+            raise ValueError("Minimum distance cannot be greater than maximum distance")
+
+        start_point = {'Date': 'None', 'Station': 'NSK1', 'X': X, 'Y': Y, 'Z': Z}  # исходный пункт
+
+        points = [start_point]
+
+        while len(points) < amount:
+            # Generate a random direction (angle in radians)
+            theta = np.random.uniform(0, 2 * np.pi)
+            phi = np.random.uniform(0, np.pi)
+
+            # Generate a random distance within the specified range
+            distance = np.random.uniform(min_dist, max_dist)
+
+            # Calculate the new point's coordinates
+            prev_x, prev_y, prev_z = points[-1]['X'], points[-1]['Y'], points[-1]['Z']
+
+            x = prev_x + distance * np.sin(phi) * np.cos(theta)
+            y = prev_y + distance * np.sin(phi) * np.sin(theta)
+            z = prev_z + distance * np.cos(phi)
+            station_name = ''.join(np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 4))
+            point = {'Date': 'None', 'Station': station_name, 'X': x, 'Y': y, 'Z': z}
+
+            # Build a KD tree from the Cartesian coordinates
+            tree = KDTree([[point['X'], point['Y'], point['Z']] for point in points])
+
+            if len(points) < 2:
+                neighbours = 1
+            else:
+                neighbours = 2
+
+            # Find the nearest point to the new point
+            dist, idx = tree.query((x, y, z), k=neighbours)
+
+            if np.all(min_dist <= dist) and np.all(dist <= max_dist):
+                # Add new point to list
+                points.append(point)
+
+        return points
+
     def triangulation(df, subplot, canvas, max_baseline):
         """
         Построение схемы сети методом триангуляции.
@@ -242,8 +281,35 @@ class SyntheticData(DataFrame):
                         color='red', zorder=4)
         canvas.draw()
 
-    # Заполняем DataFrame координатами для каждой даты и каждого геодезического пункта
-    def create_dataframe(df, date_list):
+    def create_dataframe(points, date_list):
+        """
+        Создание DataFrame с координатами для каждой даты и каждого геодезического пункта.
+
+        Параметры:
+        df (DataFrame): файл с координатами пунктов сети
+        date_list (list): список дат
+
+        Возвращает:
+        DataFrame: файл с координатами для каждой даты и каждого геодезического пункта
+        """
+        coordinates = [(p['X'], p['Y'], p['Z']) for p in points]
+        stations = [p['Station'] for p in points]
+        data = []
+
+        for date in date_list:
+            for i, station in enumerate(stations):
+
+                data.append({'Date': date,
+                             'Station': station,
+                             'X': coordinates[i][0],
+                             'Y': coordinates[i][1],
+                             'Z': coordinates[i][2]})
+
+        df = pd.DataFrame(data)
+
+        return df
+
+    def create_dataframe_old(df, date_list):
         """
         Создание DataFrame с координатами для каждой даты и каждого геодезического пункта.
 
@@ -281,7 +347,7 @@ class SyntheticData(DataFrame):
         Возвращает:
         DataFrame: файл с временным рядом, содержащим годовые и полугодовые колебания
         """
-        stations = SyntheticData.unique_names(df)
+        stations = df['Stations'].unique()
         x_harmonic_array = []
         y_harmonic_array = []
         z_harmonic_array = []
@@ -313,7 +379,6 @@ class SyntheticData(DataFrame):
         df['Z'] = df['Z'].add(z_harmonic_array, axis=0)
         return df
 
-    # линейный тренд
     def linear_trend(df, date_list, periods_in_year):
         """
         Добавление линейного тренда в временном ряде.
@@ -326,7 +391,7 @@ class SyntheticData(DataFrame):
         Возвращает:
         DataFrame: файл с временным рядом, содержащим линейный тренд
         """
-        stations = SyntheticData.unique_names(df)
+        stations = df['Stations'].unique()
         row_vx = []
         row_vy = []
         row_vz = []
@@ -347,7 +412,6 @@ class SyntheticData(DataFrame):
         df['Z'] = df['Z'].add(row_vz, axis=0)
         return df
 
-    # шум
     def noise(df, num_periods):
         """
         Генерация шума в временном ряде.
@@ -359,7 +423,7 @@ class SyntheticData(DataFrame):
         Возвращает:
         DataFrame: файл с временным рядом, содержащим шум
         """
-        stations = SyntheticData.unique_names(df)
+        stations = df['Stations'].unique()
         kappa = -1                       # Flicker noise
         N = num_periods * len(stations)  # size of the file
         h = np.zeros(2 * N)              # Note the size : 2N
@@ -378,7 +442,7 @@ class SyntheticData(DataFrame):
 
     # импульс старая версия
     '''def impulse(df, num_periods):
-        stations = SyntheticData.unique_names(df)
+        stations = df['Stations'].unique()
         N = num_periods * len(stations)  # size of the file
 
         """
@@ -392,7 +456,6 @@ class SyntheticData(DataFrame):
         df[['X', 'Y', 'Z']] = df[['X', 'Y', 'Z']].add(impulse_array, axis=0)
         return df'''
 
-    # импульс (скачок измерений)
     def impulse(df, impulse_size, target_date=None, num_stations=1, random_dates=0):
         """
         Генерация импульсов в временном ряде.
@@ -439,8 +502,6 @@ class SyntheticData(DataFrame):
         if random_dates > 0:
             return target_dates, random_stations['Station']
 
-
-    # вывод графика временного ряда
     def time_series_plot(file_name, station_name):
         df = pd.read_csv(file_name, delimiter=';')
         df = file_name.set_index('Station')

@@ -18,8 +18,12 @@ class Tests:
         self.df = df
         self.dates = df['Date'].unique()  # Store the unique dates
 
-    def congruency_test(self, df, method: str, calculation: str = "all_dates",
-                        start_date: str = None, end_date: str = None, threshold: float = 0.05):
+    def congruency_test(self, df, method: str,
+                        calculation: str = "all_dates",
+                        start_date: str = None,
+                        end_date: str = None,
+                        threshold: float = 0.05,
+                        print_log: bool = True):
         """
         Функция геометрического теста конгруэнтности геодезической сети на начальную (start_date)
         и i-ую (end_date) эпохи. Конгруэнтность проверяется при помощи T-теста (ttest) и теста Хи-квадрат (chi2)
@@ -42,9 +46,10 @@ class Tests:
             self._run_specific_date(df, method, start_date, end_date, threshold, ttest_rejected_dates,
                                     chi2_rejected_dates)
 
-        self._print_results(ttest_rejected_dates, chi2_rejected_dates)
+        if print_log:
+            self._print_results(ttest_rejected_dates, chi2_rejected_dates)
 
-        print(f"Method used: {method}")
+        return ttest_rejected_dates, chi2_rejected_dates
 
     def _run_all_dates(self, df, method, threshold, ttest_rejected_dates, chi2_rejected_dates):
         """
@@ -85,24 +90,24 @@ class Tests:
         stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
         raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
         std_dev = np.std(np.array(raz_list))
-        sigma_0 = 0.0075
-        #sigma_0 = std_dev
+        sigma_0 = 0.01 #0.0075 0.005
+        #  sigma_0 = std_dev
         print(f"std dev of data: {sigma_0}")
         print('Shapiro:', shapiro(raz_list))
 
-        ttest_result, pvalue = self._perform_ttest(raz_list, threshold)
+        '''ttest_result, pvalue = self._perform_ttest(raz_list, threshold)
         print("T-test: ", end="")
         if ttest_result:
             ttest_rejected_dates.append((start_date, end_date, pvalue))
             print(Fore.RED + f"Нулевая гипотеза отвергается, pvalue = {round(pvalue, 3)}")
         else:
             print(Fore.GREEN + f"Нулевая гипотеза не отвергается, pvalue = {round(pvalue, 3)}")
-        print(Fore.RESET, end="")
+        print(Fore.RESET, end="")'''
 
         chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold)
         print("Chi-2: ", end="")
         if chi2_result:
-            chi2_rejected_dates.append((start_date, end_date, test_value, K))
+            chi2_rejected_dates.append((start_date, end_date))
             print(Fore.RED + f"Нулевая гипотеза отвергается, testvalue = {round(test_value, 3)}, K = {round(K, 3)}")
         else:
             print(Fore.GREEN + f"Нулевая гипотеза не отвергается,"
@@ -242,6 +247,37 @@ class Tests:
         else:
             return False, K, test_value
 
+    def find_offset_points(self, df, method):
+        offset_points = []
+        stations = df['Station'].unique()
+        for station in stations:
+            temp_df = df[df['Station'] != station]
+            ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=temp_df, method=method,
+                                                                             calculation="all_dates", print_log=True)
+            if not (ttest_rejected_dates or chi2_rejected_dates):
+                offset_points.append(station)
+        return offset_points
+
+    def find_offset_points_2(self, df, method):
+        offset_points = []
+        ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df, method, calculation="all_dates")
+        rejected_dates = ttest_rejected_dates + chi2_rejected_dates
+        print(len(rejected_dates))
+        print('rej dates: ', rejected_dates)
+
+        for start_date, end_date in rejected_dates:
+            temp_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
+            for station in temp_df['Station'].unique():
+                print(f'calculating for station {station}')
+                temp_temp_df = temp_df[temp_df['Station'] != station]
+                ttest_rejected, chi2_rejected = self.congruency_test(temp_temp_df, method, calculation="specific_date",
+                                                                     start_date=start_date, end_date=end_date,
+                                                                     print_log=False)
+                if not (ttest_rejected or chi2_rejected):
+                    offset_points.append((start_date, end_date, station))
+
+        return offset_points
+
     def _print_results(self, ttest_rejected_dates, chi2_rejected_dates):
         """
         Печать результатов теста конгруэнтности.
@@ -257,13 +293,17 @@ class Tests:
         print(f"Т-тест, не отвергнуто: {len(self.dates) - len(ttest_rejected_dates)}, "
               f"отвергнуто: {len(ttest_rejected_dates)} ({len(ttest_rejected_dates) / len(self.dates) * 100:.2f}%)")
 
+        print(f"Chi2 rejected dates: {chi2_rejected_dates}")
+
 
 def main():
 
-    df = pd.read_csv('Data/testfile_20points_2with_impulse_1impulse(3cm)_2022_01_16.csv', delimiter=';')
+    df = pd.read_csv('Data/testfile_20points_3with_impulse_1impulse(3cm)_2022_05_08.csv', delimiter=';')
 
     test = Tests(df)
-    test.congruency_test(df=df, method='coordinate_based')
+    #test.congruency_test(df=df, method='coordinate_based')
+    offset_points = test.find_offset_points_2(df=df, method='coordinate_based')
+    print("Candidate points with offsets:", offset_points)
 
 
 if __name__ == "__main__":
