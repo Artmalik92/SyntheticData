@@ -1,0 +1,7 @@
+.idea
+.pytest_cache
+Data
+old_files
+venv
+fags_ppp_timeseries (1).sqlite3
+seasonal_signal.py
