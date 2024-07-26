@@ -33,19 +33,26 @@ Z_cosine_semiannual = 4.22368034377985e-04
 Z_sine_semiannual = 1.37821014348371e-03
 
 
-class SyntheticData(DataFrame):
-    def __init__(self):
-        super().__init__()
+class SyntheticData:
+    def __init__(self, df: DataFrame):
+        """
+        Initializes a SyntheticData object.
+
+        Args:
+            df (DataFrame): DataFrame containing time series
+        """
+        self.df = df
 
     def my_geodetic2ecef(df):
         """
-        Перевод координат из системы BLH в систему XYZ.
+        Converts coordinates from the BLH (latitude, longitude, height) system
+        to the XYZ (ECEF) system.
 
-        Параметры:
-        df (DataFrame): DataFrame с координатами в системе BLH
+        Args:
+            df (DataFrame): DataFrame containing coordinates in the BLH system
 
-        Возвращает:
-        DataFrame: DataFrame с координатами в системе XYZ
+        Returns:
+            DataFrame: DataFrame containing coordinates in the XYZ system
         """
 
         df = pd.DataFrame(df)
@@ -68,13 +75,14 @@ class SyntheticData(DataFrame):
 
     def my_ecef2geodetic(df):
         """
-        Перевод координат из системы XYZ в систему BLH.
+        Converts coordinates from the XYZ (ECEF) system to the BLH (latitude,
+        longitude, height) system.
 
-        Параметры:
-        df (DataFrame): DataFrame с координатами в системе XYZ
+        Args:
+            df (DataFrame): DataFrame containing coordinates in the XYZ system
 
-        Возвращает:
-        DataFrame: DataFrame с координатами в системе BLH
+        Returns:
+            DataFrame: DataFrame containing coordinates in the BLH system
         """
         # создание нового DataFrame с обновленными координатами
         df_new = pd.DataFrame({'Date': df['Date'],
@@ -165,21 +173,19 @@ class SyntheticData(DataFrame):
 
     def random_points(X, Y, Z, amount, min_dist, max_dist):
         """
-        Генерирует случайную сеть пунктов в заданной зоне.
+        Generates a random network of points within a specified zone.
 
-        Параметры:
-        B (float): начальная широта
-        L (float): начальная долгота
-        H (float): начальная высота
-        zone (float): зона генерации пунктов
-        amount (int): количество пунктов для генерации
-        method (str): метод генерации ('consistent' или 'centralized')
-        min_dist (float): минимальное расстояние между пунктами
-        max_dist (float): максимальное расстояние между пунктами
+        Args:
+            X (float): Initial longitude
+            Y (float): Initial latitude
+            Z (float): Initial height
+            amount (int): Number of points to generate
+            min_dist (float): Minimum distance between points
+            max_dist (float): Maximum distance between points
 
-        Возвращает:
-        DataFrame: DataFrame с информацией о случайных пунктах
-        """
+        Returns:
+            DataFrame: DataFrame with information about the random points
+    """
         if min_dist > max_dist:
             raise ValueError("Minimum distance cannot be greater than maximum distance")
 
@@ -223,13 +229,16 @@ class SyntheticData(DataFrame):
 
     def triangulation(df, subplot, canvas, max_baseline):
         """
-        Построение схемы сети методом триангуляции.
+        Builds a triangulation scheme of the network.
 
-        Параметры:
-        df (DataFrame): DataFrame с координатами пунктов сети
-        subplot (matplotlib.axes.Axes): объект axes для отрисовки графика
-        canvas (matplotlib.figure.FigureCanvas): объект canvas для отрисовки графика
-        max_baseline (float): максимальная длина базовой линии
+        Args:
+            df (DataFrame): DataFrame with coordinates of points
+            subplot (matplotlib.axes.Axes): Axes object for plotting
+            canvas (matplotlib.figure.FigureCanvas): Canvas object for plotting
+            max_baseline (float): Maximum length of the baseline
+
+        Returns:
+            None
         """
         fig = canvas
         ax = subplot
@@ -283,14 +292,14 @@ class SyntheticData(DataFrame):
 
     def create_dataframe(points, date_list):
         """
-        Создание DataFrame с координатами для каждой даты и каждого геодезического пункта.
+        Creates a DataFrame with coordinates for each date and each geodetic point.
 
-        Параметры:
-        df (DataFrame): файл с координатами пунктов сети
-        date_list (list): список дат
+        Args:
+            points (list): List of points with coordinates
+            date_list (list): List of dates
 
-        Возвращает:
-        DataFrame: файл с координатами для каждой даты и каждого геодезического пункта
+        Returns:
+            DataFrame: DataFrame with coordinates for each date and each geodetic point
         """
         coordinates = [(p['X'], p['Y'], p['Z']) for p in points]
         stations = [p['Station'] for p in points]
@@ -311,14 +320,14 @@ class SyntheticData(DataFrame):
 
     def create_dataframe_old(df, date_list):
         """
-        Создание DataFrame с координатами для каждой даты и каждого геодезического пункта.
+        Creates a DataFrame with coordinates for each date and each geodetic point.
 
-        Параметры:
-        df (DataFrame): файл с координатами пунктов сети
-        date_list (list): список дат
+        Args:
+            points (list): List of points with coordinates
+            date_list (list): List of dates
 
-        Возвращает:
-        DataFrame: файл с координатами для каждой даты и каждого геодезического пункта
+        Returns:
+            DataFrame: DataFrame with coordinates for each date and each geodetic point
         """
         points = df.to_dict('records')
         coordinates = [(p['X'], p['Y'], p['Z']) for p in points]
@@ -379,17 +388,48 @@ class SyntheticData(DataFrame):
         df['Z'] = df['Z'].add(z_harmonic_array, axis=0)
         return df
 
+    def c(self, t: float):
+        """
+        Calculates an amplitude change factor for seasonal signal generation
+
+        Args:
+            t (float): Time value
+
+        Returns:
+            float: Coefficient value
+        """
+        return 2 * np.exp(0.3 * np.sin(t))
+
+    def harmonics_new(self, start_date, end_date, a, b, d, e):
+        """
+        Generates a harmonic signal based on user input parameters.
+
+        Returns:
+            tuple: Time array and simulated data array
+        """
+
+        num = (end_date - start_date) * 365
+
+        t = np.linspace(start_date, end_date, num)
+
+        s = (a * np.sin(2 * np.pi * t) + b * np.cos(2 * np.pi * t) + self.c(t) * np.sin(2 * np.pi * t)
+             + self.c(t) * np.cos(2 * np.pi * t) + d * np.sin(4 * np.pi * t) + e * np.cos(4 * np.pi * t))
+
+        harmonic = s
+
+        return t, harmonic
+
     def linear_trend(df, date_list, periods_in_year):
         """
-        Добавление линейного тренда в временном ряде.
+        Adds a linear trend to a time series.
 
-        Параметры:
-        df (DataFrame): файл с временным рядом
-        date_list (list): список дат
-        periods_in_year (int): количество периодов измерений в году
+        Args:
+            df (DataFrame): DataFrame containing the time series
+            date_list (list): List of dates
+            periods_in_year (int): Number of periods in a year
 
-        Возвращает:
-        DataFrame: файл с временным рядом, содержащим линейный тренд
+        Returns:
+            DataFrame: DataFrame with the added linear trend
         """
         stations = df['Stations'].unique()
         row_vx = []
@@ -414,14 +454,14 @@ class SyntheticData(DataFrame):
 
     def noise(df, num_periods):
         """
-        Генерация шума в временном ряде.
+        Injects noise into a time series.
 
-        Параметры:
-        df (DataFrame): файл с временным рядом
-        num_periods (int): количество периодов измерений в файле
+        Args:
+            df (DataFrame): DataFrame containing the time series
+            num_periods (int): Number of periods in the time series
 
-        Возвращает:
-        DataFrame: файл с временным рядом, содержащим шум
+        Returns:
+            DataFrame: DataFrame with the added noise
         """
         stations = df['Stations'].unique()
         kappa = -1                       # Flicker noise
@@ -458,17 +498,17 @@ class SyntheticData(DataFrame):
 
     def impulse(df, impulse_size, target_date=None, num_stations=1, random_dates=0):
         """
-        Генерация импульсов в временном ряде.
+        Generates impulses in the time series.
 
-        Параметры:
-        df (DataFrame): файл с временным рядом
-        impulse_size (float): размер импульса в метрах
-        target_date (datetime.date or list of datetime.date): дата измерений, в которые вносится импульс
-        num_stations (int): количество станций в сети, в которые вносится импульс
-        random_dates (int): количество случайных дат для создания импульсов
+        Args:
+            df (DataFrame): DataFrame with time series
+            impulse_size (float): Size of the impulse in meters
+            target_date (datetime.date or list of datetime.date): Date of measurements to add impulse
+            num_stations (int): Number of stations to add impulse
+            random_dates (int): Number of random dates to add impulse
 
-        Возвращает:
-        None или list of datetime.date: если random_dates > 0, то возвращает список случайных дат
+        Returns:
+            None or list of datetime.date: If random_dates > 0, returns a list of random dates
         """
         if target_date is None and random_dates <= 0:
             raise ValueError("Either 'target_date' or 'random_dates' must be provided.")
