@@ -34,15 +34,7 @@ Z_sine_semiannual = 1.37821014348371e-03
 
 
 class SyntheticData:
-    def __init__(self, df: DataFrame):
-        """
-        Initializes a SyntheticData object.
-
-        Args:
-            df (DataFrame): DataFrame containing time series
-        """
-        self.df = df
-
+    @staticmethod
     def my_geodetic2ecef(df):
         """
         Converts coordinates from the BLH (latitude, longitude, height) system
@@ -245,7 +237,7 @@ class SyntheticData:
         ax.clear()  # очищаем график перед новой отрисовкой
 
         # рисуем точки на графике
-        scatter = ax.scatter(df['L'], df['B'], c='blue', zorder=3)
+        ax.scatter(df['L'], df['B'], c='blue', zorder=3)
         for i, row in df.iterrows():
             ax.annotate(f"{row['H']:.0f} m\n{row['Station']}", (row['L'], row['B'] + 0.01), fontsize=10, color='blue')
 
@@ -323,7 +315,7 @@ class SyntheticData:
         Creates a DataFrame with coordinates for each date and each geodetic point.
 
         Args:
-            points (list): List of points with coordinates
+            df (DataFrame): DataFrame with coordinates
             date_list (list): List of dates
 
         Returns:
@@ -343,7 +335,6 @@ class SyntheticData:
                 rows.append(new_row)
         return rows
 
-    # добавляем годовые и полугодовые колебания
     def harmonics(df, date_list, periods_in_year):
         """
         Добавление годовых и полугодовых колебаний в временном ряде.
@@ -356,7 +347,7 @@ class SyntheticData:
         Возвращает:
         DataFrame: файл с временным рядом, содержащим годовые и полугодовые колебания
         """
-        stations = df['Stations'].unique()
+        stations = df['Station'].unique()
         x_harmonic_array = []
         y_harmonic_array = []
         z_harmonic_array = []
@@ -388,7 +379,8 @@ class SyntheticData:
         df['Z'] = df['Z'].add(z_harmonic_array, axis=0)
         return df
 
-    def c(self, t: float):
+    @staticmethod
+    def c(t: float):
         """
         Calculates an amplitude change factor for seasonal signal generation
 
@@ -400,7 +392,8 @@ class SyntheticData:
         """
         return 2 * np.exp(0.3 * np.sin(t))
 
-    def harmonics_new(self, start_date, end_date, a, b, d, e):
+    @staticmethod
+    def harmonics_new(interval, periods, i, j, k, l):
         """
         Generates a harmonic signal based on user input parameters.
 
@@ -408,12 +401,12 @@ class SyntheticData:
             tuple: Time array and simulated data array
         """
 
-        num = (end_date - start_date) * 365
+        num = (end_date - start_date).days * interval
 
         t = np.linspace(start_date, end_date, num)
 
-        s = (a * np.sin(2 * np.pi * t) + b * np.cos(2 * np.pi * t) + self.c(t) * np.sin(2 * np.pi * t)
-             + self.c(t) * np.cos(2 * np.pi * t) + d * np.sin(4 * np.pi * t) + e * np.cos(4 * np.pi * t))
+        s = (i * np.sin(2 * np.pi * t) + j * np.cos(2 * np.pi * t) + SyntheticData.c(t) * np.sin(2 * np.pi * t)
+             + SyntheticData.c(t) * np.cos(2 * np.pi * t) + k * np.sin(4 * np.pi * t) + l * np.cos(4 * np.pi * t))
 
         harmonic = s
 
@@ -431,7 +424,7 @@ class SyntheticData:
         Returns:
             DataFrame: DataFrame with the added linear trend
         """
-        stations = df['Stations'].unique()
+        stations = df['Station'].unique()
         row_vx = []
         row_vy = []
         row_vz = []
@@ -463,7 +456,7 @@ class SyntheticData:
         Returns:
             DataFrame: DataFrame with the added noise
         """
-        stations = df['Stations'].unique()
+        stations = df['Station'].unique()
         kappa = -1                       # Flicker noise
         N = num_periods * len(stations)  # size of the file
         h = np.zeros(2 * N)              # Note the size : 2N
@@ -482,7 +475,7 @@ class SyntheticData:
 
     # импульс старая версия
     '''def impulse(df, num_periods):
-        stations = df['Stations'].unique()
+        stations = df['Station'].unique()
         N = num_periods * len(stations)  # size of the file
 
         """

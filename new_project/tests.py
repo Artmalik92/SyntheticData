@@ -10,10 +10,10 @@ from scipy import signal
 class Tests:
     def __init__(self, df: DataFrame):
         """
-        Инициализация класса CongruencyTest.
+        Initializes a SyntheticData object.
 
-        Параметры:
-            df (DataFrame): DataFrame с временным рядом
+        Args:
+            df (DataFrame): DataFrame containing time series
         """
         self.df = df
         self.dates = df['Date'].unique()  # Store the unique dates
@@ -25,16 +25,19 @@ class Tests:
                         threshold: float = 0.05,
                         print_log: bool = True):
         """
-        Функция геометрического теста конгруэнтности геодезической сети на начальную (start_date)
-        и i-ую (end_date) эпохи. Конгруэнтность проверяется при помощи T-теста (ttest) и теста Хи-квадрат (chi2)
+        Performs a congruence test on the input DataFrame.
 
-        Параметры:
-            df (DataFrame):               DataFrame с данными для теста конгруэнтности.
-            method (str):                 Метод теста конгруэнтности (line_based или coordinate_based).
-            calculation (str, optional):  Тип расчета (все даты или конкретная дата).
-            start_date (str, optional):   Начальная дата для расчета.
-            end_date (str, optional):     Конечная дата для расчета.
-            threshold (float, optional):  Пороговое значение для теста
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            method (str): The method to use for the congruence test (line_based or coordinate_based).
+            calculation (str, optional): The type of calculation to perform (all_dates or specific_date). Defaults to "all_dates".
+            start_date (str, optional): The start date for the calculation. Defaults to None.
+            end_date (str, optional): The end date for the calculation. Defaults to None.
+            threshold (float, optional): The threshold value for the test. Defaults to 0.05.
+            print_log (bool, optional): Whether to print the log. Defaults to True.
+
+        Returns:
+            tuple: A tuple containing the rejected dates for the T-test and Chi2 test.
         """
 
         ttest_rejected_dates = []
@@ -53,14 +56,14 @@ class Tests:
 
     def _run_all_dates(self, df, method, threshold, ttest_rejected_dates, chi2_rejected_dates):
         """
-        Вычисление для всех дат в файле.
+        Runs the congruence test for all dates in the DataFrame.
 
-        Параметры:
-            df (DataFrame):                   DataFrame с временным рядом.
-            method (str):                     Метод теста конгруэнтности (line_based или coordinate_based).
-            threshold (float):                Пороговое значение для теста.
-            ttest_rejected_dates (list):      Список дат, для которых нулевая гипотеза отвергнута по T-тесту.
-            chi2_rejected_dates (list):       Список дат, для которых нулевая гипотеза отвергнута по тесту Хи-квадрат.
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            method (str): The method to use for the congruence test (line_based or coordinate_based).
+            threshold (float): The threshold value for the test.
+            ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
+            chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
         """
         # Получение списка уникальных дат в DataFrame
         dates = df['Date'].unique()
@@ -76,16 +79,16 @@ class Tests:
 
     def _run_specific_date(self, df, method, start_date, end_date, threshold, ttest_rejected_dates, chi2_rejected_dates):
         """
-        Вычисление для конкретной пары дат.
+        Runs the congruence test for a specific date range.
 
-        Параметры:
-            df (DataFrame):                DataFrame с временным рядом.
-            method (str):                  Метод теста конгруэнтности (line_based или coordinate_based).
-            start_date (str):              Начальная дата для расчета.
-            end_date (str):                Конечная дата для расчета.
-            threshold (float):             Пороговое значение для теста.
-            ttest_rejected_dates (list):   Список дат, для которых нулевая гипотеза отвергнута по T-тесту.
-            chi2_rejected_dates (list):    Список дат, для которых нулевая гипотеза отвергнута по тесту Хи-квадрат.
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            method (str): The method to use for the congruence test (line_based or coordinate_based).
+            start_date (str): The start date for the calculation.
+            end_date (str): The end date for the calculation.
+            threshold (float): The threshold value for the test.
+            ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
+            chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
         """
         stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
         raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
@@ -116,17 +119,17 @@ class Tests:
 
     def _calculate_raz_list(self, df, method, start_date, end_date, stations):
         """
-        Вычисление списка разностей между эпохами для теста конгруэнтности.
+        Calculates the list of differences for the congruence test.
 
-        Параметры:
-            df (DataFrame):      DataFrame с временным рядом.
-            method (str):        Метод теста конгруэнтности (line_based или coordinate_based).
-            start_date (str):    Начальная дата для расчета.
-            end_date (str):      Конечная дата для расчета.
-            stations (list):     Список станций для расчета.
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            method (str): The method to use for the congruence test (line_based or coordinate_based).
+            start_date (str): The start date for the calculation.
+            end_date (str): The end date for the calculation.
+            stations (list): A list of stations.
 
-        Возвращает:
-            list: Список разностей между эпохами.
+        Returns:
+            list: A list of differences for the congruence test.
         """
         raz_list = []
         if method == 'line_based':
@@ -152,15 +155,15 @@ class Tests:
 
     def _calculate_baselines(self, df, date, stations):
         """
-        Вычисление базовых линий в сети на заданную эпоху.
+        Calculates the baselines for the given date and stations.
 
-        Параметры:
-            df (DataFrame):     DataFrame с временным рядом.
-            date (str):         Дата для расчета.
-            stations (list):    Список станций.
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            date (str): The date for the calculation.
+            stations (list): A list of stations.
 
-        Возвращает:
-            list: Список базовых линий в сети на заданную эпоху.
+        Returns:
+            list: A list of baselines for the given date and stations.
         """
         lines = []  # Список для хранения базовых линий
         computed_pairs = set()  # Множество для хранения уже вычисленных пар пунктов
@@ -184,15 +187,15 @@ class Tests:
 
     def _calculate_coordinates(self, df, date, stations):
         """
-        Вычисление координат станций на заданную эпоху.
+        Calculates the coordinates for the given date and stations.
 
-        Параметры:
-            df (DataFrame):    DataFrame с временным рядом.
-            date (str):        Дата для расчета.
-            stations (list):   Список станций.
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            date (str): The date for the calculation.
+            stations (list): A list of stations.
 
-        Возвращает:
-            dict: Словарь координат станций на заданную эпоху.
+        Returns:
+            dict: A dictionary of coordinates for the given date and stations.
         """
         coords = {}  # Словарь для хранения координат станций
         for station in stations:
@@ -202,15 +205,14 @@ class Tests:
 
     def _perform_ttest(self, raz_list, threshold):
         """
-        Выполнение T-теста.
+        Performs a T-test on the given list of differences.
 
-        Параметры:
-            raz_list (list):    Список разностей для T-теста.
-            threshold (float):  Пороговое значение для T-теста.
+        Args:
+            raz_list (list): The list of differences.
+            threshold (float): The threshold value for the test.
 
-        Возвращает:
-            bool:   Результат T-теста (гипотеза отвергнута / нет).
-            float:  p-value T-теста.
+        Returns:
+            tuple: A tuple containing the result of the T-test and the p-value.
         """
         pvalue = ttest_1samp(a=raz_list, popmean=0, nan_policy='omit')[1]
         if pvalue <= threshold:
@@ -220,18 +222,17 @@ class Tests:
 
     def _perform_chi2_test(self, raz_list, sigma_0, threshold):
         """
-        Выполнение теста Хи-квадрат.
+        Performs a Chi2 test on the given list of differences.
 
-        Параметры:
-            raz_list (list):    Список разностей для теста Хи-квадрат.
-            sigma_0 (float):    Сигма-ноль для теста Хи-квадрат.
-            threshold (float):  Пороговое значение для теста Хи-квадрат.
+        Args:
+            raz_list (list): The list of differences.
+            sigma_0 (float): The sigma-0 value for the test.
+            threshold (float): The threshold value for the test.
 
-        Возвращает:
-            bool:    Результат теста Хи-квадрат (гипотеза отвергнута / нет).
-            float:   K-значение теста Хи-квадрат.
-            float:   testvalue теста Хи-квадрат.
-
+        Returns:
+            tuple: A tuple containing the result of the Chi2 test, K-value, and test value.
+        """
+        """
         Переменные:
             d.transpose()  - транспонируем матрицу d
             dot(pinv(Qdd)) - скалярное произведение транспонированного массива d с псевдообратным значением Qdd
@@ -248,6 +249,16 @@ class Tests:
             return False, K, test_value
 
     def find_offset_points(self, df, method):
+        """
+        Finds the offset points for the given DataFrame and method.
+
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            method (str): The method to use for the congruence test (line_based or coordinate_based).
+
+        Returns:
+            list: A list of offset points.
+        """
         offset_points = []
         stations = df['Station'].unique()
         for station in stations:
@@ -259,11 +270,19 @@ class Tests:
         return offset_points
 
     def find_offset_points_2(self, df, method):
+        """
+        Finds the offset points for the given DataFrame and method.
+
+        Args:
+            df (DataFrame): The input DataFrame containing time series data.
+            method (str): The method to use for the congruence test (line_based or coordinate_based).
+
+        Returns:
+            list: A list of offset points.
+        """
         offset_points = []
         ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df, method, calculation="all_dates")
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
-        print(len(rejected_dates))
-        print('rej dates: ', rejected_dates)
 
         for start_date, end_date in rejected_dates:
             temp_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
@@ -280,11 +299,11 @@ class Tests:
 
     def _print_results(self, ttest_rejected_dates, chi2_rejected_dates):
         """
-        Печать результатов теста конгруэнтности.
+        Prints the results of the congruence test.
 
-        Параметры:
-            ttest_rejected_dates (list):   Список дат, для которых нулевая гипотеза отвергнута по T-тесту.
-            chi2_rejected_dates (list):    Список дат, для которых нулевая гипотеза отвергнута по тесту Хи-квадрат.
+        Args:
+            ttest_rejected_dates (list): A list of rejected dates for the T-test.
+            chi2_rejected_dates (list): A list of rejected dates for the Chi2 test.
         """
         print("----------------------------")
         print(f"Всего выполнено тестов: {len(self.dates)}.")
@@ -297,8 +316,10 @@ class Tests:
 
 
 def main():
-
-    df = pd.read_csv('Data/testfile_20points_3with_impulse_1impulse(3cm)_2022_05_08.csv', delimiter=';')
+    """
+    The main function.
+    """
+    df = pd.read_csv('Data/YGGR_2022_06_19_10points_impulse0.05.csv', delimiter=';')
 
     test = Tests(df)
     #test.congruency_test(df=df, method='coordinate_based')

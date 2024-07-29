@@ -182,7 +182,6 @@ class MyWindow(QWidget):
 
             # Создаем список дат на основе заданных настроек
             self.date_list = pd.date_range(start=self.start_date, periods=self.num_periods, freq=self.interval)
-
             self.points_amount = self.points_spinbox.value()          # Принимаем от пользователя количество пунктов
             self.gen_method = self.choose_method.currentText()        # Принимаем от пользователя метод генерации
             self.gen_radius = float(self.textbox_gen_radius.text())   # Принимаем размер зоны генерации
@@ -223,7 +222,9 @@ class MyWindow(QWidget):
 
             # Проверяем отмеченные пользователем чекбоксы
             if self.checkbox1.isChecked():
-                SyntheticData.harmonics(Data_interface_xyz, self.date_list, self.periods_in_year)
+                #SyntheticData.harmonics(Data_interface_xyz, self.date_list, self.periods_in_year)
+                t, harmonic = SyntheticData.harmonics_new(interval=self.periods_in_year, periods=self.num_periods, i=6, j=7, k=8, l=9)
+                Data_interface_xyz[['X', 'Y', 'Z']] = Data_interface_xyz[['X', 'Y', 'Z']].add(harmonic, axis=0)
             if self.checkbox2.isChecked():
                 SyntheticData.linear_trend(Data_interface_xyz, self.date_list, self.periods_in_year)
             if self.checkbox3.isChecked():
