@@ -5,6 +5,7 @@ from pandas import DataFrame
 from colorama import init, Fore
 from scipy.stats import ttest_1samp, shapiro, chi2, f_oneway, chisquare
 from scipy import signal
+from dateutil.parser import parse
 
 
 class Tests:
@@ -93,9 +94,9 @@ class Tests:
         stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
         raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
         std_dev = np.std(np.array(raz_list))
-        sigma_0 = 0.01 #0.0075 0.005
+        sigma_0 = 0.005 #0.0075 0.005
         #  sigma_0 = std_dev
-        print(f"std dev of data: {sigma_0}")
+        #print(f"std dev of data: {std_dev}")
         print('Shapiro:', shapiro(raz_list))
 
         '''ttest_result, pvalue = self._perform_ttest(raz_list, threshold)
@@ -200,7 +201,11 @@ class Tests:
         coords = {}  # Словарь для хранения координат станций
         for station in stations:
             station_df = df.loc[(df['Date'] == date) & (df['Station'] == station)]
-            coords[station] = (station_df['X'].values[0], station_df['Y'].values[0], station_df['Z'].values[0])
+            if not station_df.empty:
+                coords[station] = (station_df['X'].values[0], station_df['Y'].values[0], station_df['Z'].values[0])
+            else:
+                #raise ValueError("The list of coordinates is empty")
+                pass
         return coords
 
     def _perform_ttest(self, raz_list, threshold):
@@ -319,7 +324,13 @@ def main():
     """
     The main function.
     """
-    df = pd.read_csv('Data/YGGR_2022_06_19_10points_impulse0.05.csv', delimiter=';')
+
+    df = pd.read_csv('Data/merged_data_30sec_dates_2020_01_09_and_2020_01_10.csv', delimiter=';')
+
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d %H:%M:%S.%f', errors='coerce').dt.round('s')
+    #df['Date'] = df['Date'].apply(parse).dt.normalize()
+    #df['Date'].apply(parse).dt.floor('s')
+    print(df)
 
     test = Tests(df)
     #test.congruency_test(df=df, method='coordinate_based')

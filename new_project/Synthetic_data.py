@@ -65,6 +65,7 @@ class SyntheticData:
 
         return df_new
 
+    @staticmethod
     def my_ecef2geodetic(df):
         """
         Converts coordinates from the XYZ (ECEF) system to the BLH (latitude,
@@ -148,19 +149,6 @@ class SyntheticData:
                     start_point = point
                 elif method == 'centralized':
                     pass
-
-            '''
-            if all(20000 < geodesic((p['B'], p['L']), (B, L)).meters for p in points):
-                # if any(20000 < geodesic((p['B'], p['L']), (B, L)).meters < 30000 for p in points)
-                # if np.all(20 < d < 30 for d in distances):
-                # print(f"Distances to nearest neighbors of {Station}: {distances}")
-                if method == 'consistent':
-                    start_point = point
-                elif method == 'centralized':
-                    pass
-                points.append(point)
-                k += 1
-            '''
         return pd.DataFrame(points)
 
     def random_points(X, Y, Z, amount, min_dist, max_dist):
@@ -186,9 +174,8 @@ class SyntheticData:
         points = [start_point]
 
         while len(points) < amount:
-            # Generate a random direction (angle in radians)
-            theta = np.random.uniform(0, 2 * np.pi)
-            phi = np.random.uniform(0, np.pi)
+            # Generate a random direction
+            direction = np.random.uniform(0, 2 * np.pi)
 
             # Generate a random distance within the specified range
             distance = np.random.uniform(min_dist, max_dist)
@@ -196,9 +183,10 @@ class SyntheticData:
             # Calculate the new point's coordinates
             prev_x, prev_y, prev_z = points[-1]['X'], points[-1]['Y'], points[-1]['Z']
 
-            x = prev_x + distance * np.sin(phi) * np.cos(theta)
-            y = prev_y + distance * np.sin(phi) * np.sin(theta)
-            z = prev_z + distance * np.cos(phi)
+            x = prev_x + distance * np.cos(direction)
+            y = prev_y + distance * np.sin(direction)
+            z = prev_z + np.random.uniform(-25, 25)
+
             station_name = ''.join(np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 4))
             point = {'Date': 'None', 'Station': station_name, 'X': x, 'Y': y, 'Z': z}
 
@@ -535,32 +523,5 @@ class SyntheticData:
         if random_dates > 0:
             return target_dates, random_stations['Station']
 
-    def time_series_plot(file_name, station_name):
-        df = pd.read_csv(file_name, delimiter=';')
-        df = file_name.set_index('Station')
-        df_station = df.loc[station_name]
-        df_station = df_station.reset_index()
-        df_station_X = df_station['X']
-        df_station_Y = df_station['Y']
-        df_station_Z = df_station['Z']
 
-        plt.figure(1)
-        df_station_X.plot()
-        plt.xlabel('Weeks')
-        plt.ylabel('Amplitude')
-        plt.title(f'{station_name} X-coordinate')
-
-        plt.figure(2)
-        df_station_Y.plot()
-        plt.xlabel('Weeks')
-        plt.ylabel('Amplitude')
-        plt.title(f'{station_name} Y-coordinate')
-
-        plt.figure(3)
-        df_station_Z.plot()
-        plt.xlabel('Weeks')
-        plt.ylabel('Amplitude')
-        plt.title(f'{station_name} Z-coordinate')
-
-        plt.show()
 
