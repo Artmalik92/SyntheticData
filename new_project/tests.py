@@ -24,6 +24,7 @@ class Tests:
                         start_date: str = None,
                         end_date: str = None,
                         threshold: float = 0.05,
+                        sigma_0: float = 0.005,
                         print_log: bool = True):
         """
         Performs a congruence test on the input DataFrame.
@@ -35,6 +36,7 @@ class Tests:
             start_date (str, optional): The start date for the calculation. Defaults to None.
             end_date (str, optional): The end date for the calculation. Defaults to None.
             threshold (float, optional): The threshold value for the test. Defaults to 0.05.
+            sigma_0 (float, optional): The sigma_0 value for the Chi2 test. Defaults to 0.005.
             print_log (bool, optional): Whether to print the log. Defaults to True.
 
         Returns:
@@ -45,9 +47,9 @@ class Tests:
         chi2_rejected_dates = []
 
         if calculation == "all_dates":
-            self._run_all_dates(df, method, threshold, ttest_rejected_dates, chi2_rejected_dates)
+            self._run_all_dates(df, method, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates)
         elif calculation == "specific_date":
-            self._run_specific_date(df, method, start_date, end_date, threshold, ttest_rejected_dates,
+            self._run_specific_date(df, method, start_date, end_date, threshold, sigma_0, ttest_rejected_dates,
                                     chi2_rejected_dates)
 
         if print_log:
@@ -55,7 +57,7 @@ class Tests:
 
         return ttest_rejected_dates, chi2_rejected_dates
 
-    def _run_all_dates(self, df, method, threshold, ttest_rejected_dates, chi2_rejected_dates):
+    def _run_all_dates(self, df, method, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates):
         """
         Runs the congruence test for all dates in the DataFrame.
 
@@ -75,10 +77,10 @@ class Tests:
             end_date = dates[i + 1]
             print(f"Calculating for dates: {start_date} and {end_date}")
             # Вызов функции congruency_test для каждой пары дат
-            self._run_specific_date(df, method, start_date, end_date, threshold, ttest_rejected_dates,
-                                    chi2_rejected_dates)
+            self._run_specific_date(df, method, start_date, end_date, threshold,
+                                    sigma_0, ttest_rejected_dates, chi2_rejected_dates)
 
-    def _run_specific_date(self, df, method, start_date, end_date, threshold, ttest_rejected_dates, chi2_rejected_dates):
+    def _run_specific_date(self, df, method, start_date, end_date, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates):
         """
         Runs the congruence test for a specific date range.
 
@@ -93,8 +95,8 @@ class Tests:
         """
         stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
         raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
-        std_dev = np.std(np.array(raz_list))
-        sigma_0 = 0.005 #0.0075 0.005
+        #std_dev = np.std(np.array(raz_list))
+        #sigma_0 = 0.005 #0.0075 0.005
         #  sigma_0 = std_dev
         #print(f"std dev of data: {std_dev}")
         print('Shapiro:', shapiro(raz_list))
@@ -253,40 +255,21 @@ class Tests:
         else:
             return False, K, test_value
 
-    def find_offset_points(self, df, method):
+    def find_offset_points(self, df, method, sigma_0):
         """
         Finds the offset points for the given DataFrame and method.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
             method (str): The method to use for the congruence test (line_based or coordinate_based).
+            sigma_0 (float, optional): The sigma_0 value for the Chi2 test. Defaults to 0.005.
 
         Returns:
             list: A list of offset points.
         """
         offset_points = []
-        stations = df['Station'].unique()
-        for station in stations:
-            temp_df = df[df['Station'] != station]
-            ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=temp_df, method=method,
-                                                                             calculation="all_dates", print_log=True)
-            if not (ttest_rejected_dates or chi2_rejected_dates):
-                offset_points.append(station)
-        return offset_points
-
-    def find_offset_points_2(self, df, method):
-        """
-        Finds the offset points for the given DataFrame and method.
-
-        Args:
-            df (DataFrame): The input DataFrame containing time series data.
-            method (str): The method to use for the congruence test (line_based or coordinate_based).
-
-        Returns:
-            list: A list of offset points.
-        """
-        offset_points = []
-        ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df, method, calculation="all_dates")
+        ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=df, method=method,
+                                                                         calculation="all_dates", sigma_0=sigma_0)
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
 
         for start_date, end_date in rejected_dates:
@@ -296,11 +279,41 @@ class Tests:
                 temp_temp_df = temp_df[temp_df['Station'] != station]
                 ttest_rejected, chi2_rejected = self.congruency_test(temp_temp_df, method, calculation="specific_date",
                                                                      start_date=start_date, end_date=end_date,
+                                                                     sigma_0=sigma_0,
                                                                      print_log=False)
                 if not (ttest_rejected or chi2_rejected):
                     offset_points.append((start_date, end_date, station))
 
         return offset_points
+
+    def auto_sigma(self, df, method, sigma_range=(0.005, 0.01), step_size=0.001, threshold=0.05):
+        best_sigma_0 = None
+        best_diff = float('inf')
+
+        sigma_values = np.arange(sigma_range[0], sigma_range[1] + step_size, step_size)
+
+        for sigma_0 in sigma_values:
+            print(f"Testing sigma_0 = {sigma_0}")
+            _, chi2_rejected_dates = self.congruency_test(df, method, sigma_0=sigma_0, threshold=threshold,
+                                                          print_log=False)
+            if chi2_rejected_dates:
+                start_date, end_date = chi2_rejected_dates[0]  # Take the first rejected date for simplicity
+                stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
+                raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
+                _, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold)
+
+                diff = abs(K - test_value)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_sigma_0 = sigma_0
+                print(f"Current sigma_0 = {sigma_0}, diff = {diff}, best_sigma_0 = {best_sigma_0}")
+
+        if best_sigma_0 is None:
+            print("No rejected dates found, possibly due to unsuitable sigma_0 range.")
+            return None
+
+        print(f"Optimal sigma_0 found: {best_sigma_0}")
+        return best_sigma_0
 
     def _print_results(self, ttest_rejected_dates, chi2_rejected_dates):
         """
@@ -325,16 +338,17 @@ def main():
     The main function.
     """
 
-    df = pd.read_csv('Data/merged_data_30sec_dates_2020_01_09_and_2020_01_10.csv', delimiter=';')
+    df = pd.read_csv('Data/merged_data_1day.csv', delimiter=';')
 
-    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d %H:%M:%S.%f', errors='coerce').dt.round('s')
+    #df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d %H:%M:%S.%f', errors='coerce').dt.round('s')
     #df['Date'] = df['Date'].apply(parse).dt.normalize()
     #df['Date'].apply(parse).dt.floor('s')
-    print(df)
 
     test = Tests(df)
     #test.congruency_test(df=df, method='coordinate_based')
-    offset_points = test.find_offset_points_2(df=df, method='coordinate_based')
+    best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
+    print(f"Лучшее значение sigma_0: {best_sigma}")
+    offset_points = test.find_offset_points(df=df, method='coordinate_based', sigma_0=best_sigma)
     print("Candidate points with offsets:", offset_points)
 
 

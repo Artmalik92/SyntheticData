@@ -5,9 +5,9 @@ import tempfile
 import shutil
 import pandas as pd
 import numpy as np
-from PySide2.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
+from PySide6.QtWidgets import QApplication, QWidget, QCheckBox, QPushButton, QGridLayout, QLineEdit, QLabel,\
     QComboBox, QFileDialog, QTextEdit, QSpinBox
-from PySide2 import QtGui
+from PySide6 import QtGui
 from Synthetic_data import SyntheticData
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
