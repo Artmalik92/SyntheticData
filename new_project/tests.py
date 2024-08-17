@@ -297,7 +297,7 @@ class Tests:
             _, chi2_rejected_dates = self.congruency_test(df, method, sigma_0=sigma_0, threshold=threshold,
                                                           print_log=False)
             if chi2_rejected_dates:
-                start_date, end_date = chi2_rejected_dates[0]  # Take the first rejected date for simplicity
+                start_date, end_date = chi2_rejected_dates[0]
                 stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
                 raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
                 _, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold)
@@ -309,7 +309,7 @@ class Tests:
                 print(f"Current sigma_0 = {sigma_0}, diff = {diff}, best_sigma_0 = {best_sigma_0}")
 
         if best_sigma_0 is None:
-            print("No rejected dates found, possibly due to unsuitable sigma_0 range.")
+            print("No rejected dates found")
             return None
 
         print(f"Optimal sigma_0 found: {best_sigma_0}")
@@ -338,7 +338,7 @@ def main():
     The main function.
     """
 
-    df = pd.read_csv('Data/merged_data_1day.csv', delimiter=';')
+    df = pd.read_csv('Data/merged_data_30sec_dates_2020_01_09_and_2020_01_10_TEST.csv', delimiter=';')
 
     #df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d %H:%M:%S.%f', errors='coerce').dt.round('s')
     #df['Date'] = df['Date'].apply(parse).dt.normalize()
@@ -347,7 +347,6 @@ def main():
     test = Tests(df)
     #test.congruency_test(df=df, method='coordinate_based')
     best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
-    print(f"Лучшее значение sigma_0: {best_sigma}")
     offset_points = test.find_offset_points(df=df, method='coordinate_based', sigma_0=best_sigma)
     print("Candidate points with offsets:", offset_points)
 

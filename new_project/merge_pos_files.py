@@ -1,6 +1,8 @@
 import pandas as pd
 from moncenterlib.gnss.gnss_time_series import parse_pos_file
 from moncenterlib.tools import get_files_from_dir
+import json
+import datetime
 
 
 def resample(data: list,
@@ -32,7 +34,8 @@ def resample(data: list,
 def makefile(point_names: list,
              resample_interval: str = None,
              start_date: str = None,
-             end_date: str = None):
+             end_date: str = None,
+             zero_epoch_coords: dict = None):
 
     file_paths = {}
 
@@ -41,6 +44,15 @@ def makefile(point_names: list,
 
     # list to store the DataFrames
     dfs = []
+
+    # Process zero epoch coordinates
+    if zero_epoch_coords is not None:
+        zero_epoch_df = pd.DataFrame.from_dict(zero_epoch_coords, orient='index', columns=['X', 'Y', 'Z'])
+        zero_epoch_df.reset_index(inplace=True)
+        zero_epoch_df = zero_epoch_df.rename(columns={'index': 'Station'})
+        zero_epoch_df['Date'] = '00.00.0000 00:00:00'
+        zero_epoch_df = zero_epoch_df.loc[:, ['Date', 'Station', 'X', 'Y', 'Z']]
+        dfs.append(zero_epoch_df)
 
     for station, files in file_paths.items():
         for file in files:
@@ -67,12 +79,15 @@ def makefile(point_names: list,
 points = ["AMDR", "ARKH", "AST3", "BARE", "BELG",
           "BORO", "CHIT", "CNG1", "DKSN", "ANDR"]
 
+zero_epoch_coordinates = json.load(open('Data_pos_w_missing/zero_epoch.json'))
+
 merged_data = makefile(point_names=points,
                        start_date='2020-01-09 23:00:00',
-                       end_date='2020-01-10 01:00:00')
+                       end_date='2020-01-10 01:00:00',
+                       zero_epoch_coords=zero_epoch_coordinates)
 
 # Save the merged DataFrame to a CSV file
-merged_data.to_csv('Data/merged_data_30sec_dates_2020_01_09_and_2020_01_10.csv', sep=';', index=False)
+merged_data.to_csv('Data/merged_data_30sec_dates_2020_01_09_and_2020_01_10_TEST.csv', sep=';', index=False)
 
 print('Done')
 
