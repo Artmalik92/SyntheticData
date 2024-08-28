@@ -8,87 +8,123 @@ import datetime
 def resample(data: list,
              station: str,
              resample_interval: str = None):
+    """
+    Resamples the input data for a given station.
+
+    Args:
+        data (list): Input data to be resampled.
+        station (str): Name of the station.
+        resample_interval (str, optional): Resampling interval. Defaults to None.
+
+    Returns:
+        pd.DataFrame: Resampled data.
+    """
 
     df = pd.DataFrame(data)
-    df = df.iloc[:, :4]
+    df = df.iloc[:, :4]  # Вытаскиваем из .pos файла первые 4 колонки (дата и координаты)
 
-    df[0] = pd.to_datetime(df[0])
+    df[0] = pd.to_datetime(df[0])  # Ставим правильный формат даты
 
+    # Поскольку координаты спарсились в формате string, переводим их в числа
     df[1], df[2], df[3] = pd.to_numeric(df[1]), pd.to_numeric(df[2]), pd.to_numeric(df[3])
 
+    # Ресемплинг файла с определенным интервалом даты (опционально)
     if resample_interval is not None:
         df = df.resample(resample_interval, on='Date').mean()
         df.reset_index(inplace=True)
 
-    # Rename
+    # Переименование колонок файла
     df = df.rename(columns={0: 'Date', 1: f'x_{station}', 2: f'y_{station}', 3: f'z_{station}'})
 
-    # Reorder the columns
+    # Определение порядка колонок
     df = df.loc[:, ['Date', f'x_{station}', f'y_{station}', f'z_{station}']]
 
     return df
 
 
-def makefile(point_names: list,
+def makefile(directory: str,
+             point_names: list,
              resample_interval: str = None,
              start_date: str = None,
              end_date: str = None,
-             zero_epoch_coords: dict = None):
+             zero_epoch_coords: dict = None,
+             dropna: bool = True):
+    """
+    Creates a merged DataFrame from multiple POS files.
 
+    Args:
+        directory (str): Directory with pos-files.
+        point_names (list): List of point names.
+        resample_interval (str, optional): Resampling interval. Defaults to None.
+        start_date (str, optional): Start date. Defaults to None.
+        end_date (str, optional): End date. Defaults to None.
+        zero_epoch_coords (dict, optional): Zero epoch coordinates. Defaults to None.
+        dropna (bool, optional): Whether to drop rows with NaN values. Defaults to True.
+
+    Returns:
+        pd.DataFrame: Merged DataFrame.
+    """
+
+    # Получаем пути к .pos файлам в указанной директории
     file_paths = {}
-
     for p in point_names:
-        file_paths[p] = list(filter(lambda x: ".pos" in x, get_files_from_dir(f"2024_08_16/{p}", False)))
+        file_paths[p] = list(filter(lambda x: ".pos" in x, get_files_from_dir(f"{directory}/{p}", False)))
 
-    # list to store the DataFrames
-    dfs = []
-
-    '''# Process zero epoch coordinates
-    if zero_epoch_coords is not None:
-        zero_epoch_df = pd.DataFrame.from_dict(zero_epoch_coords, orient='index', columns=['X', 'Y', 'Z'])
-        zero_epoch_df.reset_index(inplace=True)
-        zero_epoch_df = zero_epoch_df.rename(columns={'index': 'Station'})
-        zero_epoch_df['Date'] = '00.00.0000 00:00:00'
-        zero_epoch_df = zero_epoch_df.loc[:, ['Date', 'Station', 'X', 'Y', 'Z']]
-        zero_epoch_df['Date'] = pd.to_datetime(zero_epoch_df['Date'])
-        dfs.append(zero_epoch_df)'''
+    dfs = []  # список для хранения .pos файлов, переведенных в формат DataFrame
 
     for station, files in file_paths.items():
         for file in files:
-            # Read the data from the file
+            # Парсинг .pos файла
             header, data = parse_pos_file(path2file=file)
 
-            # Skip the file if it's empty
+            # Пропустить файл если он пуст
             if not data:
                 print(f"File {file} is empty. Skipping...")
                 continue
 
-            # Resample the data
+            # Ресемплинг файла + изменяем колонки
             resampled_data = resample(data, station, resample_interval)
 
-            # Filter the data for the specified period
+            # Фильтрация файла на определенный временной период (опционально)
             if all([start_date is not None, end_date is not None]):
                 resampled_data = resampled_data[(resampled_data['Date'] >= start_date)
                                                 & (resampled_data['Date'] <= end_date)]
 
-            # Append the DataFrame to the list
+            # Добавление датафрейма в общий список
             dfs.append(resampled_data)
 
+    # Последовательное объединение всех полученных датафреймов по дате
     merged_df = dfs[0]
     for df in dfs[1:]:
-        merged_df = pd.merge(merged_df, df, on='Date', how='inner')
+        merged_df = pd.merge(merged_df, df, on='Date', how='outer')
+
+    # Выброс рядов с пробелами / NaN / None
+    if dropna:
+        merged_df = merged_df.dropna()
+
+    # Добавление координат на нулевую эпоху, если они указаны пользователем
+    if zero_epoch_coords is not None:
+        zero_epoch_data = {'Date': ['01.01.1900 00:00:00']}
+        for station in point_names:  # перебираем список point_names
+            if station in zero_epoch_coords:  # проверяем, есть ли станция в списке point_names
+                # создаем колонки с координатами
+                zero_epoch_data[f'x_{station}'] = [zero_epoch_coords[station][0]]
+                zero_epoch_data[f'y_{station}'] = [zero_epoch_coords[station][1]]
+                zero_epoch_data[f'z_{station}'] = [zero_epoch_coords[station][2]]
+        zero_epoch_df = pd.DataFrame(zero_epoch_data)
+        merged_df = pd.concat([zero_epoch_df, merged_df], ignore_index=True)  # Объединяем с основным файлом
 
     return merged_df
 
 
-points = ["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"]
-
 zero_epoch_coordinates = json.load(open('2024_08_16/first_epoch.json'))
 
-merged_data = makefile(point_names=points) #, zero_epoch_coords=zero_epoch_coordinates)
+merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"],
+                       zero_epoch_coords=zero_epoch_coordinates,
+                       dropna=True,
+                       directory='2024_08_16')
 
-# Save the merged DataFrame to a CSV file
-merged_data.to_csv('Data/merged_2024-08-16(feature).csv', sep=';', index=False)
+merged_data.to_csv('Data/merged_2024-08-16(feature_v2_w_zero_epoch).csv', sep=';', index=False)
 
 print('Done')
 
