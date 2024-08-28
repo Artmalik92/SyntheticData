@@ -1,11 +1,35 @@
+from Synthetic_data import SyntheticData
 import numpy as np
 from numpy.linalg import pinv
 import pandas as pd
 from pandas import DataFrame
-from colorama import init, Fore
 from scipy.stats import ttest_1samp, shapiro, chi2, f_oneway, chisquare
+from scipy.optimize import minimize
+from jinja2 import Template
+from io import StringIO, BytesIO
+import logging
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.ticker import AutoMinorLocator
+import tkinter as tk
+from tkinter import filedialog
+import base64
 from scipy import signal
 from dateutil.parser import parse
+import contextily as ctx
+import pyproj
+
+
+# Setup logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Create a StringIO handler
+string_io_handler = logging.StreamHandler(StringIO())
+string_io_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(message)s')
+string_io_handler.setFormatter(formatter)
+logger.addHandler(string_io_handler)
 
 
 class Tests:
@@ -75,7 +99,7 @@ class Tests:
         for i in range(len(dates) - 1):
             start_date = dates[i]
             end_date = dates[i + 1]
-            print(f"Calculating for dates: {start_date} and {end_date}")
+            logger.info(f"Calculating for dates: {start_date} and {end_date}")
             # Вызов функции congruency_test для каждой пары дат
             self._run_specific_date(df, method, start_date, end_date, threshold,
                                     sigma_0, ttest_rejected_dates, chi2_rejected_dates)
@@ -99,7 +123,7 @@ class Tests:
         #sigma_0 = 0.005 #0.0075 0.005
         #  sigma_0 = std_dev
         #print(f"std dev of data: {std_dev}")
-        print('Shapiro:', shapiro(raz_list))
+        logger.info('Shapiro: %s', shapiro(raz_list))
 
         '''ttest_result, pvalue = self._perform_ttest(raz_list, threshold)
         print("T-test: ", end="")
@@ -111,14 +135,14 @@ class Tests:
         print(Fore.RESET, end="")'''
 
         chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold)
-        print("Chi-2: ", end="")
         if chi2_result:
             chi2_rejected_dates.append((start_date, end_date))
-            print(Fore.RED + f"Нулевая гипотеза отвергается, testvalue = {round(test_value, 3)}, K = {round(K, 3)}")
+            logger.info("Chi-2: " + f"<span style='color:red'>Null hypothesis rejected, "
+                                    f"testvalue = {round(test_value, 3)}, K = {round(K, 3)}</span>")
         else:
-            print(Fore.GREEN + f"Нулевая гипотеза не отвергается,"
-                               f" testvalue = {round(test_value, 3)}, K = {round(K, 3)}")
-        print(Fore.RESET)
+            logger.info("Chi-2: " + f"Null hypothesis not rejected, testvalue = {round(test_value, 3)},"
+                        f" K = {round(K, 3)}")
+        logger.info("")
 
     def _calculate_raz_list(self, df, method, start_date, end_date, stations):
         """
@@ -272,10 +296,12 @@ class Tests:
                                                                          calculation="all_dates", sigma_0=sigma_0)
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
 
+        logger.info('<h2>Finding the offset points:</h2>')
+
         for start_date, end_date in rejected_dates:
             temp_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
             for station in temp_df['Station'].unique():
-                print(f'calculating for station {station}')
+                logger.info(f'calculating for station {station}')
                 temp_temp_df = temp_df[temp_df['Station'] != station]
                 ttest_rejected, chi2_rejected = self.congruency_test(temp_temp_df, method, calculation="specific_date",
                                                                      start_date=start_date, end_date=end_date,
@@ -293,7 +319,7 @@ class Tests:
         sigma_values = np.arange(sigma_range[0], sigma_range[1] + step_size, step_size)
 
         for sigma_0 in sigma_values:
-            print(f"Testing sigma_0 = {sigma_0}")
+            logger.info(f"<h3>Testing sigma_0 = {sigma_0}</h3>")
             _, chi2_rejected_dates = self.congruency_test(df, method, sigma_0=sigma_0, threshold=threshold,
                                                           print_log=False)
             if chi2_rejected_dates:
@@ -306,14 +332,67 @@ class Tests:
                 if diff < best_diff:
                     best_diff = diff
                     best_sigma_0 = sigma_0
-                print(f"Current sigma_0 = {sigma_0}, diff = {diff}, best_sigma_0 = {best_sigma_0}")
+                logger.info(f"<h3>Current sigma_0 = {sigma_0}, diff = {diff}, best_sigma_0 = {best_sigma_0}</h3>")
 
         if best_sigma_0 is None:
             print("No rejected dates found")
             return None
 
-        print(f"Optimal sigma_0 found: {best_sigma_0}")
+        logger.info(f"<h3>Optimal sigma_0 found: {best_sigma_0}</h3>")
         return best_sigma_0
+
+    def _objective(self, sigma_0, d, threshold):
+        """
+        Objective function to minimize the absolute difference between K and the test value.
+
+        Args:
+            sigma_0 (float): The sigma_0 value being tested.
+            d (np.array): Array of differences.
+            threshold (float): The threshold value for the test.
+
+        Returns:
+            float: The absolute difference between K and the test value.
+        """
+        Qdd = np.eye(d.shape[0])
+        K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
+        test_value = chi2.ppf(df=d.shape[0], q=threshold)
+        return abs(K - test_value)
+
+    def _perform_chi2_test_ai(self, raz_list, threshold):
+        """
+        Performs a Chi2 test on the given list of differences, automatically optimizing sigma_0.
+
+        Args:
+            raz_list (list): The list of differences.
+            threshold (float): The threshold value for the test.
+
+        Returns:
+            tuple: A tuple containing the result of the Chi2 test, K-value, test value, and optimal sigma_0.
+        """
+        d = np.array(raz_list)
+
+        # Initial guess for sigma_0
+        initial_sigma_0 = 1.0
+
+        # Define bounds to ensure sigma_0 is positive
+        bounds = [(1e-6, None)]
+
+        # Use minimize to find the best sigma_0 with bounds
+        result = minimize(self._objective, initial_sigma_0, args=(d, threshold), bounds=bounds, method='L-BFGS-B')
+
+        # Optimal sigma_0
+        optimal_sigma_0 = result.x[0]
+
+        # Calculate K and test_value with optimal sigma_0
+        Qdd = np.eye(d.shape[0])
+        K = d.transpose().dot(pinv(Qdd)).dot(d) / (optimal_sigma_0 ** 2)
+        test_value = chi2.ppf(df=d.shape[0], q=threshold)
+
+        if K > test_value:
+            return True, K, test_value, optimal_sigma_0
+        else:
+            return False, K, test_value, optimal_sigma_0
+
 
     def _print_results(self, ttest_rejected_dates, chi2_rejected_dates):
         """
@@ -323,14 +402,57 @@ class Tests:
             ttest_rejected_dates (list): A list of rejected dates for the T-test.
             chi2_rejected_dates (list): A list of rejected dates for the Chi2 test.
         """
-        print("----------------------------")
-        print(f"Всего выполнено тестов: {len(self.dates)}.")
-        print(f"Хи-квадрат, не отвергнуто: {len(self.dates) - len(chi2_rejected_dates)}, "
+        logger.info("----------------------------")
+        logger.info(f"Всего выполнено тестов: {len(self.dates)}.")
+        logger.info(f"Хи-квадрат, не отвергнуто: {len(self.dates) - len(chi2_rejected_dates)}, "
               f"отвергнуто: {len(chi2_rejected_dates)} ({len(chi2_rejected_dates) / len(self.dates) * 100:.2f}%)")
-        print(f"Т-тест, не отвергнуто: {len(self.dates) - len(ttest_rejected_dates)}, "
+        logger.info(f"Т-тест, не отвергнуто: {len(self.dates) - len(ttest_rejected_dates)}, "
               f"отвергнуто: {len(ttest_rejected_dates)} ({len(ttest_rejected_dates) / len(self.dates) * 100:.2f}%)")
 
-        print(f"Chi2 rejected dates: {chi2_rejected_dates}")
+        logger.info(f"Chi2 rejected dates: {chi2_rejected_dates}")
+
+    def save_html_report(self, report_data, output_path):
+        html_template = """
+        <html>
+        <head>
+        <title>Congruency Test Report</title>
+        <style>
+            img {
+                width: 50%;
+            }
+        </style>
+        </head>
+        <body>
+            <h1>Congruency Test Report</h1>
+            <p><strong>Total Tests:</strong> {{ total_tests }}</p>
+            <p><strong>Chi2 Rejected Dates:</strong> {{ chi2_rejected_dates }}</p>
+            <p><strong>T-Test Rejected Dates:</strong> {{ ttest_rejected_dates }}</p>
+            <p><strong>Optimal Sigma:</strong> {{ best_sigma_0 }}</p>
+            <p><strong>Offset Points:</strong> {{ offset_points }}</p>
+            <h2>Stations Map:</h2>
+            {{ triangulation_map }}
+            <h2>Points with offsets:</h2>
+            {{ offset_plots }}
+            <h2>Detailed Log:</h2>
+            <pre>{{ log_contents }}</pre>
+        </body>
+        </html>
+        """
+        template = Template(html_template)
+        html_content = template.render(**report_data)
+
+        with open(output_path, 'w') as file:
+            file.write(html_content)
+        return output_path
+
+
+def select_file():
+    root = tk.Tk()
+    root.withdraw()
+    file_path = filedialog.askopenfilename(title="Select input file",
+                                           filetypes=[("CSV files", "*.csv")],
+                                           initialdir="E:/docs_for_univer/Diplom_project/diplom/new_project/Data")
+    return file_path
 
 
 def main():
@@ -338,17 +460,155 @@ def main():
     The main function.
     """
 
-    df = pd.read_csv('Data/merged_data_30sec_dates_2020_01_09_and_2020_01_10_TEST.csv', delimiter=';')
+    file_path = select_file()
+    df = pd.read_csv(file_path, delimiter=';')
 
     #df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d %H:%M:%S.%f', errors='coerce').dt.round('s')
     #df['Date'] = df['Date'].apply(parse).dt.normalize()
     #df['Date'].apply(parse).dt.floor('s')
 
     test = Tests(df)
-    #test.congruency_test(df=df, method='coordinate_based')
-    best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
-    offset_points = test.find_offset_points(df=df, method='coordinate_based', sigma_0=best_sigma)
-    print("Candidate points with offsets:", offset_points)
+
+    #best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
+
+
+    stations = df['Station'].unique()
+    raz_list = test._calculate_raz_list(df, method='coordinate_based', start_date=min(df['Date']),
+                                        end_date=max(df['Date']), stations=stations)
+    _, _, _, best_sigma = test._perform_chi2_test_ai(raz_list, threshold=0.05)
+
+
+
+    offset_points = test.find_offset_points(df=df, method='coordinate_based', sigma_0=0.005)
+
+    ttest_rejected_dates, chi2_rejected_dates = test.congruency_test(df, method='coordinate_based')
+
+    # Get the log contents
+    string_io_handler.flush()
+    log_contents = string_io_handler.stream.getvalue()
+
+    # Group offsets by station
+    station_offsets = {}
+    for start_date, end_date, station in offset_points:
+        if station not in station_offsets:
+            station_offsets[station] = []
+        station_offsets[station].append((start_date, end_date))
+
+    report_data = {
+        'total_tests': len(test.dates),
+        'chi2_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in chi2_rejected_dates],
+        'ttest_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in ttest_rejected_dates],
+        'best_sigma_0': best_sigma,
+        'offset_points': offset_points,
+        'offset_plots': '',
+        'triangulation_map': '',
+        'log_contents': log_contents}
+
+    #df_last_date = df[df['Date'] == df['Date'].max()]
+    #df_last_date = SyntheticData.my_ecef2geodetic(df_last_date)
+
+    try:
+        # Find the epoch with the most stations
+        station_counts = df['Date'].value_counts()
+        most_stations_epoch = station_counts.index[0]
+
+        # Filter the data for the most stations epoch
+        df_most_stations = df[df['Date'] == most_stations_epoch]
+        df_last_date = df_most_stations
+
+        # Define the ENU and BLH CRS objects
+        enu_crs = pyproj.CRS.from_epsg(4978)
+        # Define the Web Mercator CRS object
+        webmercator_crs = pyproj.CRS.from_epsg(3857)
+
+        # Define the projection systems
+        blh_proj = pyproj.Proj(proj='longlat', ellps='WGS84', datum='WGS84')
+        webmercator_proj = pyproj.Proj(init='epsg:3857')
+
+        """# Convert BLH coordinates to Web Mercator
+        df_last_date['x_webmercator'], df_last_date['y_webmercator'] = pyproj.transform(blh_proj, webmercator_proj,
+                                                                                        df_last_date['L'].values,
+                                                                                        df_last_date['B'].values)
+        """
+        # Transform ENU coordinates to Web Mercator
+        df_last_date['x_webmercator'], df_last_date['y_webmercator'], _ = pyproj.transform(
+            enu_crs, webmercator_crs, df_last_date['X'].values, df_last_date['Y'].values, df_last_date['Z'].values)
+
+        # Create the triangulation plot
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.scatter(df_last_date['x_webmercator'], df_last_date['y_webmercator'])
+
+        # Add a real earth map as the background
+        ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik)
+
+        # Plot station names
+        for index, row in df_last_date.iterrows():
+            ax.annotate(row['Station'], xy=(row['x_webmercator'], row['y_webmercator']), xytext=(0, 10),
+                        textcoords='offset points', ha='center', va='bottom')
+
+        # Highlight stations with offsets
+        offset_stations = [station for station, offsets in station_offsets.items() if offsets]
+        for station in offset_stations:
+            station_df = df_last_date[df_last_date['Station'] == station]
+            ax.scatter(station_df['x_webmercator'], station_df['y_webmercator'], c='red', marker='*', s=100)
+
+        buf = BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        triangulation_map = base64.b64encode(buf.getvalue()).decode('utf-8')
+        report_data['triangulation_map'] = f"<img src='data:image/png;base64,{triangulation_map}'><br>"
+        plt.close(fig)
+    except Exception as e:
+        print(e)
+
+    # Create plots for each station with multiple offsets
+    for station, offsets in station_offsets.items():
+        station_df = df[df['Station'] == station]
+        dates = station_df['Date']
+        x_values = station_df['X']
+        y_values = station_df['Y']
+        z_values = station_df['Z']
+
+        fig, ax = plt.subplots(3, 1, sharex=True, figsize=(12, 6))
+        ax[0].plot(dates, x_values, label='X')
+        ax[1].plot(dates, y_values, label='Y')
+        ax[2].plot(dates, z_values, label='Z')
+
+        # Highlight all offset periods for the station
+        for start_date, end_date in offsets:
+            for a in ax:
+                a.axvspan(start_date, end_date, color='red', alpha=0.5)
+                # Add label for offset point
+                a.annotate(f"{start_date} - {end_date}", xy=(start_date, 0), xytext=(0, 10),
+                           textcoords='offset points', ha='center', va='bottom', rotation=45)
+
+        for a in ax:
+            a.legend()
+
+        plt.gcf().autofmt_xdate()
+        plt.suptitle(f"Station {station}")
+
+        # Set the plot width to 100%
+        fig.tight_layout()
+        fig.set_size_inches((12, 6))  # Set the figure size
+
+        # Save the plot to a bytes buffer
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+
+        # Encode the image data as base64
+        img_data = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+        # Add the image to the HTML report
+        report_data['offset_plots'] += f"<img src='data:image/png;base64,{img_data}'><br>"
+
+        plt.close()
+
+    test.save_html_report(report_data=report_data, output_path='Data/congruency_test_report_2024_08_16(concatenated)'+'.html')
+
+    # Remove the StringIO handler
+    logger.removeHandler(string_io_handler)
 
 
 if __name__ == "__main__":

@@ -11,22 +11,20 @@ def resample(data: list,
 
     df = pd.DataFrame(data)
     df = df.iloc[:, :4]
-    df = df.rename(columns={0: 'Date', 1: 'X', 2: 'Y', 3: 'Z'})
 
-    df['Date'] = pd.to_datetime(df['Date'])
+    df[0] = pd.to_datetime(df[0])
 
-    df['X'] = pd.to_numeric(df['X'])
-    df['Y'] = pd.to_numeric(df['Y'])
-    df['Z'] = pd.to_numeric(df['Z'])
+    df[1], df[2], df[3] = pd.to_numeric(df[1]), pd.to_numeric(df[2]), pd.to_numeric(df[3])
 
     if resample_interval is not None:
         df = df.resample(resample_interval, on='Date').mean()
         df.reset_index(inplace=True)
 
-    # Add the station name as a column
-    df['Station'] = station
+    # Rename
+    df = df.rename(columns={0: 'Date', 1: f'x_{station}', 2: f'y_{station}', 3: f'z_{station}'})
+
     # Reorder the columns
-    df = df.loc[:, ['Date', 'Station', 'X', 'Y', 'Z']]
+    df = df.loc[:, ['Date', f'x_{station}', f'y_{station}', f'z_{station}']]
 
     return df
 
@@ -40,24 +38,30 @@ def makefile(point_names: list,
     file_paths = {}
 
     for p in point_names:
-        file_paths[p] = list(filter(lambda x: ".pos" in x, get_files_from_dir(f"Data_pos/{p}", False)))
+        file_paths[p] = list(filter(lambda x: ".pos" in x, get_files_from_dir(f"2024_08_16/{p}", False)))
 
     # list to store the DataFrames
     dfs = []
 
-    # Process zero epoch coordinates
+    '''# Process zero epoch coordinates
     if zero_epoch_coords is not None:
         zero_epoch_df = pd.DataFrame.from_dict(zero_epoch_coords, orient='index', columns=['X', 'Y', 'Z'])
         zero_epoch_df.reset_index(inplace=True)
         zero_epoch_df = zero_epoch_df.rename(columns={'index': 'Station'})
         zero_epoch_df['Date'] = '00.00.0000 00:00:00'
         zero_epoch_df = zero_epoch_df.loc[:, ['Date', 'Station', 'X', 'Y', 'Z']]
-        dfs.append(zero_epoch_df)
+        zero_epoch_df['Date'] = pd.to_datetime(zero_epoch_df['Date'])
+        dfs.append(zero_epoch_df)'''
 
     for station, files in file_paths.items():
         for file in files:
             # Read the data from the file
             header, data = parse_pos_file(path2file=file)
+
+            # Skip the file if it's empty
+            if not data:
+                print(f"File {file} is empty. Skipping...")
+                continue
 
             # Resample the data
             resampled_data = resample(data, station, resample_interval)
@@ -70,24 +74,21 @@ def makefile(point_names: list,
             # Append the DataFrame to the list
             dfs.append(resampled_data)
 
-    # Concatenate the list of DataFrames into a single DataFrame
-    merged_df = pd.concat(dfs, ignore_index=True)
+    merged_df = dfs[0]
+    for df in dfs[1:]:
+        merged_df = pd.merge(merged_df, df, on='Date', how='inner')
 
     return merged_df
 
 
-points = ["AMDR", "ARKH", "AST3", "BARE", "BELG",
-          "BORO", "CHIT", "CNG1", "DKSN", "ANDR"]
+points = ["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"]
 
-zero_epoch_coordinates = json.load(open('Data_pos_w_missing/zero_epoch.json'))
+zero_epoch_coordinates = json.load(open('2024_08_16/first_epoch.json'))
 
-merged_data = makefile(point_names=points,
-                       start_date='2020-01-09 23:00:00',
-                       end_date='2020-01-10 01:00:00',
-                       zero_epoch_coords=zero_epoch_coordinates)
+merged_data = makefile(point_names=points) #, zero_epoch_coords=zero_epoch_coordinates)
 
 # Save the merged DataFrame to a CSV file
-merged_data.to_csv('Data/merged_data_30sec_dates_2020_01_09_and_2020_01_10_TEST.csv', sep=';', index=False)
+merged_data.to_csv('Data/merged_2024-08-16(feature).csv', sep=';', index=False)
 
 print('Done')
 

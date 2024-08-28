@@ -207,7 +207,7 @@ class SyntheticData:
 
         return points
 
-    def triangulation(df, subplot, canvas, max_baseline):
+    def triangulation(df, subplot, canvas, max_baseline=None):
         """
         Builds a triangulation scheme of the network.
 
@@ -225,9 +225,12 @@ class SyntheticData:
         ax.clear()  # очищаем график перед новой отрисовкой
 
         # рисуем точки на графике
-        ax.scatter(df['L'], df['B'], c='blue', zorder=3)
+        ax.scatter(df['L'], df['B'], c='blue', zorder=5)
         for i, row in df.iterrows():
-            ax.annotate(f"{row['H']:.0f} m\n{row['Station']}", (row['L'], row['B'] + 0.01), fontsize=10, color='blue')
+            ax.annotate(f"{row['H']:.0f} m\n{row['Station']}", (row['L'], row['B'] + 0.01),
+                        fontsize=10,
+                        color='blue',
+                        zorder=6)
 
         # строим геодезическую сеть триангуляции
         tri = Delaunay(df[['B', 'L']])
@@ -246,7 +249,12 @@ class SyntheticData:
             x1, y1 = df.iloc[edge[0]][['L', 'B']]
             x2, y2 = df.iloc[edge[1]][['L', 'B']]
             length = geodesic((y1, x1), (y2, x2)).meters
-            if length <= max_baseline:  # проверяем длину линии
+            if max_baseline:
+                if length <= max_baseline:  # проверяем длину линии
+                    label = f'{length:.0f} m'
+                    edge_labels.add((min(edge), max(edge), label))
+                    ax.plot([x1, x2], [y1, y2], c='black', linewidth=0.5, zorder=2)
+            else:
                 label = f'{length:.0f} m'
                 edge_labels.add((min(edge), max(edge), label))
                 ax.plot([x1, x2], [y1, y2], c='black', linewidth=0.5, zorder=2)
@@ -268,7 +276,10 @@ class SyntheticData:
             ax.annotate(label_text, (label_x, label_y), rotation=rotation, bbox=bbox, ha='center', va='center',
                         fontsize=6,
                         color='red', zorder=4)
-        canvas.draw()
+
+        ax.set_aspect('equal')
+
+        return fig, ax
 
     def create_dataframe(points, date_list):
         """
