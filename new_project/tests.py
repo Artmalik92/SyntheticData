@@ -117,8 +117,9 @@ class Tests:
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
         """
-        stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
-        raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
+        #stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
+        raz_list = self._calculate_raz_list(df, method, start_date, end_date)
+
         #std_dev = np.std(np.array(raz_list))
         #sigma_0 = 0.005 #0.0075 0.005
         #  sigma_0 = std_dev
@@ -144,7 +145,7 @@ class Tests:
                         f" K = {round(K, 3)}")
         logger.info("")
 
-    def _calculate_raz_list(self, df, method, start_date, end_date, stations):
+    def _calculate_raz_list(self, df, method, start_date, end_date, stations=None):
         """
         Calculates the list of differences for the congruence test.
 
@@ -159,7 +160,14 @@ class Tests:
             list: A list of differences for the congruence test.
         """
         raz_list = []
-        if method == 'line_based':
+
+        # Convert the columns to numeric types
+        df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric, errors='coerce')
+
+        row_0 = df[df['Date'] == start_date]
+        row_i = df[df['Date'] == end_date]
+
+        """if method == 'line_based':
             ''' метод, основанный на вычислении разностей базовых линий на разные эпохи '''
             values_0 = self._calculate_baselines(df, start_date, stations)   # Словарь координат на начальную эпоху
             values_i = self._calculate_baselines(df, end_date, stations)     # Словарь координат на i-ую эпоху
@@ -167,18 +175,30 @@ class Tests:
             for line1 in values_0:
                 for line2 in values_i:
                     if line1[0] == line2[0] and line1[1] == line2[1]:
-                        raz_list.append(line1[2] - line2[2])
-        elif method == 'coordinate_based':
+                        raz_list.append(line1[2] - line2[2])"""
+        if method == 'coordinate_based':
             ''' метод, основанный на вычислении разностей координат пунктов на разные эпохи '''
-            values_0 = self._calculate_coordinates(df, start_date, stations)  # Словарь координат на начальную эпоху
+
+            # Check if both rows exist
+            if row_0.empty or row_i.empty:
+                return None
+
+            # Subtract the values of the corresponding columns
+            result = row_0.iloc[0, 1:] - row_i.iloc[0, 1:]
+
+            # Return the result as a list
+            return result.tolist()
+
+        ''' values_0 = self._calculate_coordinates(df, start_date, stations)  # Словарь координат на начальную эпоху
             values_i = self._calculate_coordinates(df, end_date, stations)    # Словарь координат на i-ую эпоху
             # Заполнение списка разностями
             for station, coord_0 in values_0.items():
                 if station in values_i:
                     coord_i = values_i[station]
                     raz = np.subtract(coord_i, coord_0)
-                    raz_list.extend(raz)
-        return raz_list
+                    raz_list.extend(raz)'''
+
+        '''return raz_list'''
 
     def _calculate_baselines(self, df, date, stations):
         """
@@ -298,11 +318,17 @@ class Tests:
 
         logger.info('<h2>Finding the offset points:</h2>')
 
+        # Получаем список с названиями станций и дропаем повторяющиеся значения
+        station_names = list(set(df.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
+
         for start_date, end_date in rejected_dates:
             temp_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
-            for station in temp_df['Station'].unique():
+            for station in station_names:
                 logger.info(f'calculating for station {station}')
-                temp_temp_df = temp_df[temp_df['Station'] != station]
+                # Get the columns corresponding to the current station
+                station_cols = [col for col in temp_df.columns if station in col]
+                # Create a temporary DataFrame with all columns except the current station
+                temp_temp_df = temp_df.drop(station_cols, axis=1)
                 ttest_rejected, chi2_rejected = self.congruency_test(temp_temp_df, method, calculation="specific_date",
                                                                      start_date=start_date, end_date=end_date,
                                                                      sigma_0=sigma_0,
@@ -471,10 +497,11 @@ def main():
 
     #best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
 
+    # Extract station names from column names
+    stations = list(set(df.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
-    stations = df['Station'].unique()
     raz_list = test._calculate_raz_list(df, method='coordinate_based', start_date=min(df['Date']),
-                                        end_date=max(df['Date']), stations=stations)
+                                        end_date=max(df['Date']))
     _, _, _, best_sigma = test._perform_chi2_test_ai(raz_list, threshold=0.05)
 
 
@@ -563,11 +590,12 @@ def main():
 
     # Create plots for each station with multiple offsets
     for station, offsets in station_offsets.items():
-        station_df = df[df['Station'] == station]
+        station_df = df[[col for col in df.columns if station in col or col == 'Date']]
+
         dates = station_df['Date']
-        x_values = station_df['X']
-        y_values = station_df['Y']
-        z_values = station_df['Z']
+        x_values = station_df[f'x_{station}']
+        y_values = station_df[f'y_{station}']
+        z_values = station_df[f'z_{station}']
 
         fig, ax = plt.subplots(3, 1, sharex=True, figsize=(12, 6))
         ax[0].plot(dates, x_values, label='X')
@@ -605,7 +633,7 @@ def main():
 
         plt.close()
 
-    test.save_html_report(report_data=report_data, output_path='Data/congruency_test_report_2024_08_16(concatenated)'+'.html')
+    test.save_html_report(report_data=report_data, output_path='Data/congruency_test_report_2024_08_16(feature)'+'.html')
 
     # Remove the StringIO handler
     logger.removeHandler(string_io_handler)
@@ -613,3 +641,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
