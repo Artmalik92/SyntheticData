@@ -28,13 +28,16 @@ def resample(data: list,
     # Поскольку координаты спарсились в формате string, переводим их в числа
     df[1], df[2], df[3] = pd.to_numeric(df[1]), pd.to_numeric(df[2]), pd.to_numeric(df[3])
 
-    # Ресемплинг файла с определенным интервалом даты (опционально)
-    if resample_interval is not None:
-        df = df.resample(resample_interval, on='Date').mean()
-        df.reset_index(inplace=True)
-
     # Переименование колонок файла
     df = df.rename(columns={0: 'Date', 1: f'x_{station}', 2: f'y_{station}', 3: f'z_{station}'})
+
+    # Ресемплинг файла с определенным интервалом даты (опционально)
+    if resample_interval is not None:
+        try:
+            df = df.resample(resample_interval, on='Date', origin='epoch').first()
+            df.reset_index(inplace=True)
+        except Exception as e:
+            print(e)
 
     # Определение порядка колонок
     df = df.loc[:, ['Date', f'x_{station}', f'y_{station}', f'z_{station}']]
@@ -117,14 +120,15 @@ def makefile(directory: str,
     return merged_df
 
 
-zero_epoch_coordinates = json.load(open('2024_08_16/first_epoch.json'))
+zero_epoch_coordinates = json.load(open('2024-08-29/first_epoch.json'))
 
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"],
                        zero_epoch_coords=zero_epoch_coordinates,
                        dropna=True,
-                       directory='2024_08_16')
+                       directory='2024-08-29',
+                       resample_interval=None)
 
-merged_data.to_csv('Data/merged_2024-08-16(feature_v2_w_zero_epoch).csv', sep=';', index=False)
+merged_data.to_csv('Data/merged_2024-08-29.csv', sep=';', index=False)
 
 print('Done')
 

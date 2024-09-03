@@ -20,11 +20,11 @@ import contextily as ctx
 import pyproj
 
 
-# Setup logger
+# Установка логгера
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Create a StringIO handler
+# обработчик StringIO для записи логов
 string_io_handler = logging.StreamHandler(StringIO())
 string_io_handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(message)s')
@@ -41,7 +41,7 @@ class Tests:
             df (DataFrame): DataFrame containing time series
         """
         self.df = df
-        self.dates = df['Date'].unique()  # Store the unique dates
+        self.dates = df['Date'].unique()  # датафрейм с уникальными датами
 
     def congruency_test(self, df, method: str,
                         calculation: str = "all_dates",
@@ -92,7 +92,7 @@ class Tests:
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
         """
-        # Получение списка уникальных дат в DataFrame
+        # Получение датафрейма со списком уникальных дат
         dates = df['Date'].unique()
         # Сортировка дат
         dates = sorted(dates)
@@ -161,7 +161,7 @@ class Tests:
         """
         raz_list = []
 
-        # Convert the columns to numeric types
+        # Конвертация столбцов с координатами в числовой формат
         df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric, errors='coerce')
 
         row_0 = df[df['Date'] == start_date]
@@ -291,6 +291,7 @@ class Tests:
             sigma_0 ** 2   - Все выражение делится на данное значение, которое предст. собой СКО шума.
         """
         d = np.array(raz_list)
+        print(raz_list)
         Qdd = np.eye(d.shape[0])
         K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
         test_value = chi2.ppf(df=d.shape[0], q=threshold)
@@ -451,10 +452,11 @@ class Tests:
         <body>
             <h1>Congruency Test Report</h1>
             <p><strong>Total Tests:</strong> {{ total_tests }}</p>
-            <p><strong>Chi2 Rejected Dates:</strong> {{ chi2_rejected_dates }}</p>
-            <p><strong>T-Test Rejected Dates:</strong> {{ ttest_rejected_dates }}</p>
+            <p><strong>Total stations processed:</strong> {{ stations_length }}</p>
+            <p><strong>Stations names:</strong> {{ stations_names }}</p>
             <p><strong>Optimal Sigma:</strong> {{ best_sigma_0 }}</p>
-            <p><strong>Offset Points:</strong> {{ offset_points }}</p>
+            <p><strong>Offset Points:</strong></p>
+            {{ offset_points }}
             <h2>Stations Map:</h2>
             {{ triangulation_map }}
             <h2>Points with offsets:</h2>
@@ -473,8 +475,6 @@ class Tests:
 
 
 def select_file():
-    root = tk.Tk()
-    root.withdraw()
     file_path = filedialog.askopenfilename(title="Select input file",
                                            filetypes=[("CSV files", "*.csv")],
                                            initialdir="E:/docs_for_univer/Diplom_project/diplom/new_project/Data")
@@ -507,6 +507,7 @@ def main():
 
 
     offset_points = test.find_offset_points(df=df, method='coordinate_based', sigma_0=0.005)
+    offsets_html_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station']).to_html(index=False)
 
     ttest_rejected_dates, chi2_rejected_dates = test.congruency_test(df, method='coordinate_based')
 
@@ -523,13 +524,16 @@ def main():
 
     report_data = {
         'total_tests': len(test.dates),
-        'chi2_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in chi2_rejected_dates],
-        'ttest_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in ttest_rejected_dates],
+        'stations_length': len(stations),
+        'stations_names': stations,
         'best_sigma_0': best_sigma,
-        'offset_points': offset_points,
+        'offset_points': offsets_html_table,
         'offset_plots': '',
         'triangulation_map': '',
         'log_contents': log_contents}
+
+    """'chi2_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in chi2_rejected_dates],
+        'ttest_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in ttest_rejected_dates],"""
 
     #df_last_date = df[df['Date'] == df['Date'].max()]
     #df_last_date = SyntheticData.my_ecef2geodetic(df_last_date)
@@ -633,7 +637,7 @@ def main():
 
         plt.close()
 
-    test.save_html_report(report_data=report_data, output_path='Data/congruency_test_report_2024_08_16(feature)'+'.html')
+    test.save_html_report(report_data=report_data, output_path='Data/congruency_test_report_2024_08_29'+'.html')
 
     # Remove the StringIO handler
     logger.removeHandler(string_io_handler)
