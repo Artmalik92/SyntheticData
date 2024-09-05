@@ -161,8 +161,8 @@ def interpolate_missing_values(df):
     return df_interpolated
 
 
-df = pd.read_csv('Data/merged_2024-08-29_with_na_nozeroepoch.csv', delimiter=';')
-df = df.iloc[:, [0, 4, 5, 6]]
+df = pd.read_csv('Data/for_article_2024-08-31.csv', delimiter=';')
+df = df.iloc[:, [0, 7, 8, 9]]
 
 df.columns = ['Date', 0, 1, 2]
 # Interpolate missing values
@@ -170,7 +170,7 @@ df = interpolate_missing_values(df)
 df_filtered = df
 df_filtered.iloc[:, 1:] = df_filtered.iloc[:, 1:].apply(lambda x: medfilt(x, kernel_size=11))
 
-window_length = '10min'
+window_length = '1min'
 X_WLS, Qv_WLS, test_statistic, wls_df = geometric_chi_test_statictics(df_filtered, window_length, 0.015)
 
 print(wls_df)
