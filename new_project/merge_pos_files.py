@@ -24,6 +24,7 @@ def resample(data: list,
     df = df.iloc[:, :4]  # Вытаскиваем из .pos файла первые 4 колонки (дата и координаты)
 
     df[0] = pd.to_datetime(df[0])  # Ставим правильный формат даты
+    df[0] = df[0].dt.round('s')  # убираем миллисекунды
 
     # Поскольку координаты спарсились в формате string, переводим их в числа
     df[1], df[2], df[3] = pd.to_numeric(df[1]), pd.to_numeric(df[2]), pd.to_numeric(df[3])
@@ -107,7 +108,7 @@ def makefile(directory: str,
 
     # Добавление координат на нулевую эпоху, если они указаны пользователем
     if zero_epoch_coords is not None:
-        zero_epoch_data = {'Date': ['01.01.1900 00:00:00']}
+        zero_epoch_data = {'Date': ['1900-01-01 00:00:00']}
         for station in point_names:  # перебираем список point_names
             if station in zero_epoch_coords:  # проверяем, есть ли станция в списке point_names
                 # создаем колонки с координатами
@@ -123,12 +124,12 @@ def makefile(directory: str,
 zero_epoch_coordinates = json.load(open('2024-08-29/first_epoch.json'))
 
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"],
-                       zero_epoch_coords=zero_epoch_coordinates,
-                       dropna=True,
+                       zero_epoch_coords=None,
+                       dropna=False,
                        directory='2024-08-29',
                        resample_interval=None)
 
-merged_data.to_csv('Data/merged_2024-08-29.csv', sep=';', index=False)
+merged_data.to_csv('Data/merged_2024-08-29_with_na_nozeroepoch.csv', sep=';', index=False)
 
 print('Done')
 

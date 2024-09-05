@@ -421,6 +421,92 @@ class Tests:
             return False, K, test_value, optimal_sigma_0
 
 
+
+
+
+
+    def geometric_chi_test_calc(time_series_frag, sigma, sigma_0):
+        # Mask NaN values
+        mask = ~np.isnan(time_series_frag)
+        L = time_series_frag[mask]
+
+        L = time_series_frag
+        sigma = np.ones(L.size) * 0.01
+        # задаем массив эпох
+        t = np.arange(0, L.size, 1)
+        A = np.column_stack((np.ones(L.size), t))
+        P = np.diag(1 / (sigma * sigma_0))
+
+        """A = np.zeros((L.size, 2))  # матрица нулей с размерностью L
+
+        # цикл формирования матрицы коэффициентов, хотя можно было обойтись и без него
+        for m in range(L.size):
+            ti = t[m]
+            A[m] = np.array([1, ti])
+        # формирование матрицы весов
+        P = np.diag(sigma) / sigma_0"""
+
+        # решаем СЛАУ
+        N = A.transpose().dot(P).dot(A)  # со знаком Я сомневаюсь
+        X = np.linalg.inv(N).dot(A.transpose().dot(P).dot(L))  # вектор параметров кинематической модели
+        x_LS = X[0] + X[1] * t[-1]
+        x_LS_first = X[0] + X[1] * t[0]
+        # вычисляем вектор невязок
+        V = A.dot(X) + L  #
+        Qx = np.linalg.inv(N)
+        # СКП единицы веса
+        mu = np.sqrt(np.sum(V.transpose().dot(P).dot(V)) / (V.shape[0] - 2))  # я тут не уверен
+        Qv = Qx[1, 1]
+        return (x_LS_first, x_LS, Qv, mu)
+
+    def geometric_chi_test_statictics(time_series_df, window,
+                                      sigma_0):  # в проге нужно сделать так, чтобы сигмы брать из pos-файла. в тестовом скрипте этого нет
+        X_WLS = np.zeros((window, time_series_df.shape[1]))
+        Qv_WLS = np.zeros((window, time_series_df.shape[1]))
+
+        sigma = np.ones(int(time_series_df.shape[0] / window)) * 0.01
+
+        # Calculate the number of full windows that can be fit into the dataframe
+        num_full_windows = time_series_df.shape[0] // window
+
+        # Calculate initial values using least squares
+        initial_values = []
+        end = int(time_series_df.shape[0] / window)
+        for i in range(time_series_df.shape[1]):
+            x_LS_first, x_LS, Qx, mu = geometric_chi_test_calc(time_series_frag=time_series_df[i][0:end], sigma=sigma,
+                                                               sigma_0=sigma_0)
+            initial_values.append(x_LS_first)
+        initial_values = np.array(initial_values)
+        print(initial_values)
+
+        # Calculate the rest of the values
+        for i in range(time_series_df.shape[1]):
+            end = 0
+            for j in range(window):
+                st = end
+                end = int((j + 1) * time_series_df.shape[0] / window)
+
+                x_LS_first, x_LS, Qx, mu = geometric_chi_test_calc(time_series_frag=time_series_df[i][st:end],
+                                                                   sigma=sigma,
+                                                                   sigma_0=sigma_0)
+                X_WLS[j, i] = x_LS
+                Qv_WLS[j, i] = Qx
+
+        X_WLS = np.insert(X_WLS, 0, initial_values, axis=0)
+
+        test_statistic = np.zeros((window - 1))
+        for l in range(window - 1):  # здесь косяки скорее всего. Нужно их исправлять
+            Qv = Qv_WLS[l] + Qv_WLS[l + 1]
+            d = X_WLS[l] - X_WLS[l + 1]
+            Qdd = np.diag(Qv)
+            test_statistic[l] = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
+            # d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
+        return X_WLS, Qv_WLS, test_statistic
+
+
+
+
+
     def _print_results(self, ttest_rejected_dates, chi2_rejected_dates):
         """
         Prints the results of the congruence test.
