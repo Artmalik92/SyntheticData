@@ -683,9 +683,11 @@ class Tests:
         </head>
         <body>
             <h1>Congruency Test Report</h1>
+            <p><strong>Input file:</strong> {{ file_name }}</p>
             <p><strong>Total Tests:</strong> {{ total_tests }}</p>
             <p><strong>Total stations processed:</strong> {{ stations_length }}</p>
             <p><strong>Stations names:</strong> {{ stations_names }}</p>
+            <p><strong>WLS window size:</strong> {{ window_size }}</p>
             <p><strong>Optimal Sigma:</strong> {{ best_sigma_0 }}</p>
             <p><strong>Offset Points:</strong></p>
             {{ offset_points }}
@@ -729,7 +731,8 @@ def main():
 
     #best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
 
-    wls, raw, filtered, Qv = test.perform_wls(df, '1min', 0.015)
+    window_size = '1min'
+    wls, raw, filtered, Qv = test.perform_wls(df, window_size, 0.015)
     Qv.to_csv('Data/Qv.csv', sep=';', index=False)
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
@@ -760,20 +763,16 @@ def main():
         station_offsets[station].append((start_date, end_date))
 
     report_data = {
+        'file_name': file_path,
         'total_tests': (len(wls['Date'])-1),
         'stations_length': len(stations),
         'stations_names': stations,
+        'window_size': window_size,
         'best_sigma_0': best_sigma,
         'offset_points': offsets_html_table,
         'offset_plots': '',
         'triangulation_map': '',
         'log_contents': log_contents}
-
-    """'chi2_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in chi2_rejected_dates],
-        'ttest_rejected_dates': [f"{start_date} to {end_date}" for start_date, end_date in ttest_rejected_dates],"""
-
-    #df_last_date = df[df['Date'] == df['Date'].max()]
-    #df_last_date = SyntheticData.my_ecef2geodetic(df_last_date)
 
     try:
         # Find the epoch with the most stations
@@ -847,17 +846,14 @@ def main():
         y_values = station_df_wls[f'y_{station}']
         z_values = station_df_wls[f'z_{station}']
 
-        fig = make_subplots(rows=3, cols=1,
-                            subplot_titles=[f'X Coordinate {station}',
-                                            f'Y Coordinate {station}',
-                                            f'Z Coordinate {station}'])
+        fig = make_subplots(rows=3, cols=1)
 
         # Add Raw data plot on primary y-axis
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values, mode='lines', name='Raw data',
+        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values_raw, mode='lines', name='Raw data',
                                  line=dict(color='lightgray'), legendgroup='Raw data', showlegend=True), row=1, col=1)
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values, mode='lines', name='Raw data',
+        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values_raw, mode='lines', name='Raw data',
                                  line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=2, col=1)
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values, mode='lines', name='Raw data',
+        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values_raw, mode='lines', name='Raw data',
                                  line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=3, col=1)
 
         # Add Filtered data plot on secondary y-axis (twinx axis)
@@ -882,71 +878,26 @@ def main():
                                  line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
                       row=3, col=1)
 
-        for i in range(3):
-            fig.update_xaxes(title_text='Date', tickformat='%H:%M:%S', row=i + 1, col=1)
-            fig.update_yaxes(title_text='Raw data', row=i + 1, col=1)
-            fig.update_yaxes(title_text='Filtered', row=i + 1, col=1, secondary_y=True)
-            fig.update_yaxes(title_text='WLS Estimate', row=i + 1, col=1, secondary_y=True, tertiary=True)
+        # Highlight all offset periods for the station
+        for start_date, end_date in offsets:
+            fig.add_vrect(x0=start_date, x1=end_date,
+                          fillcolor='red', opacity=0.5,
+                          layer='below', line_width=0)
 
-        fig.update_layout(height=1000, width=800, title_text=f'{station} Coordinates')
+        for i in range(3):
+            fig.update_xaxes(showgrid=False, tickformat='%H:%M:%S', row=i + 1, col=1)
+            fig.update_yaxes(showgrid=False, row=i + 1, col=1)
+            fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True)
+            fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True, tertiary=True)
+
+        fig.update_layout(height=600, width=1200,  # Adjust the figure size
+                          title_text=f'{station} Coordinates')
 
         # Convert the figure to HTML (with Plotly JavaScript library embedded)
         html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
 
         # Add the HTML image to your report
         report_data['offset_plots'] += html_img + "<br>"
-
-        #fig.show(renderer="default")
-
-        '''station_df_wls = wls[[col for col in df.columns if station in col or col == 'Date']]
-        station_df_raw = raw[[col for col in df.columns if station in col or col == 'Date']]
-        station_df_filtered = filtered[[col for col in df.columns if station in col or col == 'Date']]
-
-        dates = station_df_wls['Date']
-        x_values = station_df_wls[f'x_{station}']
-        y_values = station_df_wls[f'y_{station}']
-        z_values = station_df_wls[f'z_{station}']
-
-        fig, ax = plt.subplots(3, 1, sharex=True, figsize=(12, 6))
-        ax[0].plot(dates, x_values, label='X')
-        ax[1].plot(dates, y_values, label='Y')
-        ax[2].plot(dates, z_values, label='Z')
-
-        # Highlight all offset periods for the station
-        for start_date, end_date in offsets:
-            for a in ax:
-                a.axvspan(start_date, end_date, color='red', alpha=0.5)
-                # Add label for offset point
-                #a.annotate(f"{start_date} - {end_date}", xy=(start_date, 0), xytext=(0, 10),
-                           #textcoords='offset points', ha='center', va='bottom', rotation=45)
-
-
-
-        for a in ax:
-            #a.set_xticks(station_df_wls['Date'])
-            #a.set_xticklabels(station_df_wls['Date'].dt.strftime('%H:%M:%S'))
-            a.legend()
-
-        fig.autofmt_xdate()
-        plt.suptitle(f"Station {station}")
-
-        # Set the plot width to 100%
-        fig.tight_layout()
-        fig.set_size_inches((12, 6))  # Set the figure size
-        
-        # Save the plot to a bytes buffer
-        buf = BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight')
-        buf.seek(0)
-
-        # Encode the image data as base64
-        img_data = base64.b64encode(buf.getvalue()).decode('utf-8')
-
-        # Add the image to the HTML report
-        report_data['offset_plots'] += f"<img src='data:image/png;base64,{img_data}'><br>"
-
-        plt.close()
-        '''
 
     test.save_html_report(report_data=report_data, output_path='Data/tests_plotly_30aug_1min'+'.html')
 
