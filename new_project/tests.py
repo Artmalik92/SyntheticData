@@ -21,6 +21,10 @@ from dateutil.parser import parse
 import contextily as ctx
 import pyproj
 import itertools
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.io as pio
+pio.renderers.default = 'png'
 
 
 # Установка логгера
@@ -697,7 +701,7 @@ class Tests:
         template = Template(html_template)
         html_content = template.render(**report_data)
 
-        with open(output_path, 'w') as file:
+        with open(output_path, 'w', encoding='utf-8') as file:
             file.write(html_content)
         return output_path
 
@@ -831,6 +835,73 @@ def main():
         station_df_raw = raw[[col for col in df.columns if station in col or col == 'Date']]
         station_df_filtered = filtered[[col for col in df.columns if station in col or col == 'Date']]
 
+        x_values_raw = station_df_raw[f'x_{station}']
+        y_values_raw = station_df_raw[f'y_{station}']
+        z_values_raw = station_df_raw[f'z_{station}']
+
+        x_values_fil = station_df_filtered[f'x_{station}']
+        y_values_fil = station_df_filtered[f'y_{station}']
+        z_values_fil = station_df_filtered[f'z_{station}']
+
+        x_values = station_df_wls[f'x_{station}']
+        y_values = station_df_wls[f'y_{station}']
+        z_values = station_df_wls[f'z_{station}']
+
+        fig = make_subplots(rows=3, cols=1,
+                            subplot_titles=[f'X Coordinate {station}',
+                                            f'Y Coordinate {station}',
+                                            f'Z Coordinate {station}'])
+
+        # Add Raw data plot on primary y-axis
+        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values, mode='lines', name='Raw data',
+                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=True), row=1, col=1)
+        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values, mode='lines', name='Raw data',
+                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=2, col=1)
+        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values, mode='lines', name='Raw data',
+                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=3, col=1)
+
+        # Add Filtered data plot on secondary y-axis (twinx axis)
+        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=x_values_fil, mode='lines', name='Filtered data',
+                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=True),
+                      row=1, col=1)
+        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=y_values_fil, mode='lines', name='Filtered data',
+                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=False),
+                      row=2, col=1)
+        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=z_values_fil, mode='lines', name='Filtered data',
+                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=False),
+                      row=3, col=1)
+
+        # Add WLS Estimate plot on tertiary y-axis (twinx axis)
+        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=x_values, mode='lines', name='WLS Estimate',
+                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=True),
+                      row=1, col=1)
+        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=y_values, mode='lines', name='WLS Estimate',
+                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                      row=2, col=1)
+        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=z_values, mode='lines', name='WLS Estimate',
+                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                      row=3, col=1)
+
+        for i in range(3):
+            fig.update_xaxes(title_text='Date', tickformat='%H:%M:%S', row=i + 1, col=1)
+            fig.update_yaxes(title_text='Raw data', row=i + 1, col=1)
+            fig.update_yaxes(title_text='Filtered', row=i + 1, col=1, secondary_y=True)
+            fig.update_yaxes(title_text='WLS Estimate', row=i + 1, col=1, secondary_y=True, tertiary=True)
+
+        fig.update_layout(height=1000, width=800, title_text=f'{station} Coordinates')
+
+        # Convert the figure to HTML (with Plotly JavaScript library embedded)
+        html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
+
+        # Add the HTML image to your report
+        report_data['offset_plots'] += html_img + "<br>"
+
+        #fig.show(renderer="default")
+
+        '''station_df_wls = wls[[col for col in df.columns if station in col or col == 'Date']]
+        station_df_raw = raw[[col for col in df.columns if station in col or col == 'Date']]
+        station_df_filtered = filtered[[col for col in df.columns if station in col or col == 'Date']]
+
         dates = station_df_wls['Date']
         x_values = station_df_wls[f'x_{station}']
         y_values = station_df_wls[f'y_{station}']
@@ -862,7 +933,7 @@ def main():
         # Set the plot width to 100%
         fig.tight_layout()
         fig.set_size_inches((12, 6))  # Set the figure size
-
+        
         # Save the plot to a bytes buffer
         buf = BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight')
@@ -875,8 +946,9 @@ def main():
         report_data['offset_plots'] += f"<img src='data:image/png;base64,{img_data}'><br>"
 
         plt.close()
+        '''
 
-    test.save_html_report(report_data=report_data, output_path='Data/tests_for_article_2024_08_29_1min'+'.html')
+    test.save_html_report(report_data=report_data, output_path='Data/tests_plotly_30aug_1min'+'.html')
 
     # Remove the StringIO handler
     logger.removeHandler(string_io_handler)

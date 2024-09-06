@@ -161,7 +161,7 @@ def interpolate_missing_values(df):
     return df_interpolated
 
 
-df = pd.read_csv('Data/for_article_2024-08-31.csv', delimiter=';')
+df = pd.read_csv('Data/for_article_2024-08-30.csv', delimiter=';')
 df = df.iloc[:, [0, 7, 8, 9]]
 
 df.columns = ['Date', 0, 1, 2]
