@@ -1,30 +1,22 @@
-from Synthetic_data import SyntheticData
 import numpy as np
 from numpy.linalg import pinv
 import pandas as pd
 from pandas import DataFrame
-from scipy.stats import ttest_1samp, shapiro, chi2, f_oneway, chisquare
+from scipy.stats import ttest_1samp, shapiro, chi2
 from scipy.optimize import minimize
 from scipy.signal import medfilt
 from jinja2 import Template
 from io import StringIO, BytesIO
 import logging
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from matplotlib.ticker import AutoMinorLocator
-import matplotlib.ticker as ticker
-import tkinter as tk
 from tkinter import filedialog
 import base64
-from scipy import signal
-from dateutil.parser import parse
 import contextily as ctx
 import pyproj
 import itertools
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
-pio.renderers.default = 'png'
 
 
 # Установка логгера
@@ -733,7 +725,6 @@ def main():
 
     window_size = '1min'
     wls, raw, filtered, Qv = test.perform_wls(df, window_size, 0.015)
-    Qv.to_csv('Data/Qv.csv', sep=';', index=False)
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
     # Extract station names from column names
@@ -846,7 +837,7 @@ def main():
         y_values = station_df_wls[f'y_{station}']
         z_values = station_df_wls[f'z_{station}']
 
-        fig = make_subplots(rows=3, cols=1)
+        fig = make_subplots(rows=3, cols=1, vertical_spacing=0.02)
 
         # Add Raw data plot on primary y-axis
         fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values_raw, mode='lines', name='Raw data',
@@ -885,13 +876,18 @@ def main():
                           layer='below', line_width=0)
 
         for i in range(3):
-            fig.update_xaxes(showgrid=False, tickformat='%H:%M:%S', row=i + 1, col=1)
+            fig.update_xaxes(showgrid=False, row=i + 1, col=1)
             fig.update_yaxes(showgrid=False, row=i + 1, col=1)
             fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True)
             fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True, tertiary=True)
+            if i < 2:  # Hide time labels on the first two subplots
+                fig.update_xaxes(tickvals=[], row=i + 1, col=1)
+            else:  # Show time labels on the last subplot
+                fig.update_xaxes(tickformat='%H:%M:%S', row=i + 1, col=1)
 
         fig.update_layout(height=600, width=1200,  # Adjust the figure size
-                          title_text=f'{station} Coordinates')
+                          title_text=f'Offsets found in {station} station: ',
+                          margin=dict(l=10, r=10, t=50, b=10))
 
         # Convert the figure to HTML (with Plotly JavaScript library embedded)
         html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
