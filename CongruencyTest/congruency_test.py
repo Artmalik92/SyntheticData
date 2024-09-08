@@ -711,7 +711,7 @@ class Tests:
 def select_file():
     file_path = filedialog.askopenfilename(title="Select input file",
                                            filetypes=[("CSV files", "*.csv")],
-                                           initialdir="E:/docs_for_univer/Diplom_project/diplom/new_project/Data")
+                                           initialdir="E:/docs_for_univer/Diplom_project/diplom/CongruencyTest/Data")
     return file_path
 
 

@@ -10,7 +10,7 @@ from Synthetic_data import SyntheticData
 import matplotlib.pyplot as plt
 
 """
-Это устаревшая версия. Новая версия находится в файле tests.py
+Это устаревшая версия. Новая версия находится в файле congruency_test.py
 """
 
 
