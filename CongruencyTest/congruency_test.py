@@ -9,6 +9,7 @@ from jinja2 import Template
 from io import StringIO, BytesIO
 import logging
 import matplotlib.pyplot as plt
+import tkinter as tk
 from tkinter import filedialog
 import base64
 import contextily as ctx
@@ -54,6 +55,7 @@ class Tests:
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
+            Qv (DataFrame):
             method (str): The method to use for the congruence test (line_based or coordinate_based).
             calculation (str, optional): The type of calculation to perform (all_dates or specific_date). Defaults to "all_dates".
             start_date (str, optional): The start date for the calculation. Defaults to None.
@@ -117,6 +119,7 @@ class Tests:
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
         """
         #stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
+        print('Dates ', start_date, end_date)
         raz_list = self._calculate_raz_list(df, method, start_date, end_date)
 
         Qv.iloc[:, 1:] = Qv.iloc[:, 1:].apply(pd.to_numeric)
@@ -171,10 +174,10 @@ class Tests:
 
         # Конвертация столбцов с координатами в числовой формат
         df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric)  #errors='coerce'
+        df = df.loc[:, df.columns.str.startswith(('x_', 'y_', 'z_')) | (df.columns == 'Date')]
 
         row_0 = df[df['Date'] == start_date]
         row_i = df[df['Date'] == end_date]
-
 
         """if method == 'line_based':
             ''' метод, основанный на вычислении разностей базовых линий на разные эпохи '''
@@ -301,12 +304,22 @@ class Tests:
         """
 
         d = np.array(raz_list)
+        #print('d ', d)
+        #print('Qv ', Qv)
+        Qdd = np.diag(Qv)
+        #print('sigma0 ', sigma_0)
+        #Qdd = np.eye(d.shape[0])
+        #('Qdd ', Qdd)
 
-        #Qdd = np.diag(Qv)
-        Qdd = np.eye(d.shape[0])
         K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
-        test_value = chi2.ppf(df=d.shape[0], q=threshold)
+        #print('dtransp', d.transpose())
+        #print('d.transpose().dot(Qdd)', d.transpose().dot(Qdd))
+        #print('d.transpose().dot(Qdd).dot(d)', d.transpose().dot(Qdd).dot(d))
+        #print('K', K)
+        print('K', K)
 
+        test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
+        print('test', test_value)
         if K > test_value:
             return True, K, test_value
         else:
@@ -328,7 +341,7 @@ class Tests:
         ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=df, method=method,
                                                                          calculation="all_dates", sigma_0=sigma_0, Qv=Qv)
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
-
+        print(rejected_dates)
         logger.info('<h2>Finding the offset points:</h2>')
 
         # Получаем список с названиями станций и дропаем повторяющиеся значения
@@ -355,10 +368,11 @@ class Tests:
                 for station_combination in itertools.combinations(station_names, drop_count):
                     logger.info(f'Calculating for stations {station_combination} and dates {start_date} to {end_date}')
                     non_station_df = self.drop_station_columns(date_range_df, station_combination)
+                    non_station_qv = self.drop_station_columns(Qv, station_combination)
                     ttest_rejected, chi2_rejected = self.congruency_test(df=non_station_df, method=method,
                                                                          calculation="specific_date",
                                                                          start_date=start_date, end_date=end_date,
-                                                                         sigma_0=sigma_0, print_log=False, Qv=Qv)
+                                                                         sigma_0=sigma_0, print_log=False, Qv=non_station_qv)
                     if not (ttest_rejected or chi2_rejected):
                         station_cols = [col for col in date_range_df.columns if
                                         any(station in col for station in station_combination)]
@@ -464,11 +478,15 @@ class Tests:
         mask = ~np.isnan(time_series_frag)
         L = time_series_frag[mask]
 
-        sigma = np.ones(L.size) * 0.01
         # задаем массив эпох
         t = np.arange(0, L.size, 1)
         A = np.column_stack((np.ones(L.size), t))
-        P = np.diag(1 / (sigma * sigma_0))
+        '''A = np.zeros((L.size, 2))
+        for m in range(L.size):
+            ti = t[m]
+            A[m] = np.array([1, ti])'''
+        #P = np.diag(1 / (sigma * sigma_0))
+        P = np.diag(sigma) / sigma_0
 
         # решаем СЛАУ
         N = A.transpose().dot(P).dot(A)  # со знаком Я сомневаюсь
@@ -483,7 +501,8 @@ class Tests:
         Qv = Qx[1, 1]
         return (x_LS_first, x_LS, Qv, mu)
 
-    def geometric_chi_test_statictics(self, time_series_df,
+    def geometric_chi_test_statictics(self, station,
+                                      time_series_df,
                                       window_size,
                                       sigma_0):  # в проге нужно сделать так, чтобы сигмы брать из pos-файла. в тестовом скрипте этого нет
         X_WLS = []
@@ -492,8 +511,6 @@ class Tests:
         initial_values_X = []
         initial_values_Qv = []
 
-        # sigma = np.ones(int(time_series_df.shape[0] / window)) * 0.01
-
         time_series_df['Date'] = pd.to_datetime(time_series_df['Date'])
         time_series_df.set_index('Date', inplace=True)
 
@@ -501,10 +518,17 @@ class Tests:
         start_time = time_series_df.index[0]
         end_time = start_time + pd.Timedelta(window_size)
         fragment = time_series_df[(time_series_df.index >= start_time) & (time_series_df.index < end_time)]
-        for col in time_series_df.columns:
-            x_LS_first, _, Qx, _ = self.geometric_chi_test_calc(time_series_frag=fragment[col],
-                                                           sigma=np.ones(fragment.shape[0]) * 0.01,
-                                                           sigma_0=sigma_0)
+
+        coord_cols = [col for col in fragment.columns if
+                      col.startswith('x_') or col.startswith('y_') or col.startswith('z_')]
+
+        sigma_cols = [f'sde_{station}' if col.startswith('x_') else f'sdn_{station}' if col.startswith(
+            'y_') else f'sdu_{station}' for col in coord_cols]
+
+        for coord_col, sigma_col in zip(coord_cols, sigma_cols):
+            x_LS_first, _, Qx, _ = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
+                                                                        sigma=fragment[sigma_col],
+                                                                        sigma_0=sigma_0)
             initial_values_X.append(x_LS_first)
             initial_values_Qv.append(Qx)
 
@@ -523,11 +547,10 @@ class Tests:
             Qx_values = []
 
             # Apply the least squares code to the fragment
-            for col in fragment.columns:
-                x_LS_first, x_LS, Qx, mu = self.geometric_chi_test_calc(time_series_frag=fragment[col],
-                                                                   sigma=np.ones(fragment.shape[0]) * 0.01,
-                                                                   sigma_0=sigma_0)
-
+            for coord_col, sigma_col in zip(coord_cols, sigma_cols):
+                x_LS_first, x_LS, Qx, mu = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
+                                                                        sigma=fragment[sigma_col].values,
+                                                                        sigma_0=sigma_0)
                 x_LS_values.append(x_LS)
                 Qx_values.append(Qx)
 
@@ -544,8 +567,8 @@ class Tests:
         Qv_WLS = np.array(Qv_WLS)
 
         time_series_df.reset_index(inplace=True)
-        wls_df = pd.DataFrame(columns=time_series_df.columns)
-        Qv_df = pd.DataFrame(columns=time_series_df.columns)
+        wls_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
+        Qv_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
 
         # Assign wls_times to the first column of wls_df
         wls_df['Date'] = wls_times
@@ -593,7 +616,9 @@ class Tests:
         pandas.DataFrame: The filtered dataframe.
         """
         df_filtered = df.copy()
-        df_filtered.iloc[:, 1:] = df_filtered.iloc[:, 1:].apply(lambda x: medfilt(x, kernel_size=kernel_size))
+        for col in df_filtered.columns:
+            if col.startswith(('x_', 'y_', 'z_')):
+                df_filtered[col] = medfilt(df_filtered[col], kernel_size=kernel_size)
         return df_filtered
 
     def perform_wls(self, df, window_size, sigma_0):
@@ -618,9 +643,10 @@ class Tests:
             station_df_filtered = self.filter_data(station_df, kernel_size=11)
 
             # Perform the geometric chi test
-            X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df = self.geometric_chi_test_statictics(time_series_df=station_df_filtered,
-                                                                                  window_size=window_size,
-                                                                                  sigma_0=sigma_0)
+            X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df = self.geometric_chi_test_statictics(station=station,
+                                                                                              time_series_df=station_df_filtered,
+                                                                                              window_size=window_size,
+                                                                                              sigma_0=sigma_0)
             # Append the wls_df to the list
             raw_dfs.append(station_df)
             filtered_dfs.append(station_df_filtered)
@@ -701,9 +727,12 @@ class Tests:
 
 
 def select_file():
+    root = tk.Tk()
+    root.withdraw()
     file_path = filedialog.askopenfilename(title="Select input file",
                                            filetypes=[("CSV files", "*.csv")],
                                            initialdir="E:/docs_for_univer/Diplom_project/diplom/CongruencyTest/Data")
+    root.update()
     return file_path
 
 
@@ -715,16 +744,13 @@ def main():
     file_path = select_file()
     df = pd.read_csv(file_path, delimiter=';')
 
-    #df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d %H:%M:%S.%f', errors='coerce').dt.round('s')
-    #df['Date'] = df['Date'].apply(parse).dt.normalize()
-    #df['Date'].apply(parse).dt.floor('s')
-
     test = Tests(df)
 
     #best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
 
     window_size = '1min'
-    wls, raw, filtered, Qv = test.perform_wls(df, window_size, 0.015)
+    sigma_value = 0.15 #0.0000005 0.005
+    wls, raw, filtered, Qv = test.perform_wls(df, window_size, sigma_value)
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
     # Extract station names from column names
@@ -736,7 +762,7 @@ def main():
 
 
 
-    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=0.005, Qv=Qv, max_drop=2)
+    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=sigma_value, Qv=Qv, max_drop=2)
 
     offsets_html_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size']).to_html(index=False)
 
@@ -821,9 +847,12 @@ def main():
 
     # Create plots for each station with multiple offsets
     for station, offsets in station_offsets.items():
-        station_df_wls = wls[[col for col in df.columns if station in col or col == 'Date']]
-        station_df_raw = raw[[col for col in df.columns if station in col or col == 'Date']]
-        station_df_filtered = filtered[[col for col in df.columns if station in col or col == 'Date']]
+        station_df_wls = wls[
+            [col for col in wls.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+        station_df_raw = raw[
+            [col for col in raw.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+        station_df_filtered = filtered[
+            [col for col in filtered.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
 
         x_values_raw = station_df_raw[f'x_{station}']
         y_values_raw = station_df_raw[f'y_{station}']
@@ -895,7 +924,7 @@ def main():
         # Add the HTML image to your report
         report_data['offset_plots'] += html_img + "<br>"
 
-    test.save_html_report(report_data=report_data, output_path='Data/tests_plotly_30aug_1min'+'.html')
+    test.save_html_report(report_data=report_data, output_path='Data/test-sigmas-30aug-1min-weight'+'.html')
 
     # Remove the StringIO handler
     logger.removeHandler(string_io_handler)
