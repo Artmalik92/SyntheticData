@@ -737,9 +737,11 @@ def main():
 
 
     offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=0.005, Qv=Qv, max_drop=2)
+    print(offset_points)
 
-    offsets_html_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size']).to_html(index=False)
-
+    offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
+    offsets_html_table = offsets_table.to_html(index=False)
+    offsets_table.to_csv('Data/moments.csv', sep=';', index=False)
     #ttest_rejected_dates, chi2_rejected_dates = test.congruency_test(df, method='coordinate_based')
 
     # Get the log contents
@@ -895,7 +897,7 @@ def main():
         # Add the HTML image to your report
         report_data['offset_plots'] += html_img + "<br>"
 
-    test.save_html_report(report_data=report_data, output_path='Data/tests_plotly_30aug_1min'+'.html')
+    test.save_html_report(report_data=report_data, output_path='Data/test-30aug-1min'+'.html')
 
     # Remove the StringIO handler
     logger.removeHandler(string_io_handler)
