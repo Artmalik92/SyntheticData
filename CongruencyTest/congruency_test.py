@@ -311,7 +311,7 @@ class Tests:
         #Qdd = np.eye(d.shape[0])
         #('Qdd ', Qdd)
 
-        K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
+        K = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
         #print('dtransp', d.transpose())
         #print('d.transpose().dot(Qdd)', d.transpose().dot(Qdd))
         #print('d.transpose().dot(Qdd).dot(d)', d.transpose().dot(Qdd).dot(d))
@@ -480,11 +480,11 @@ class Tests:
 
         # задаем массив эпох
         t = np.arange(0, L.size, 1)
-        A = np.column_stack((np.ones(L.size), t))
-        '''A = np.zeros((L.size, 2))
+        #A = np.column_stack((np.ones(L.size), t))
+        A = np.zeros((L.size, 2))
         for m in range(L.size):
             ti = t[m]
-            A[m] = np.array([1, ti])'''
+            A[m] = np.array([1, ti])
         #P = np.diag(1 / (sigma * sigma_0))
         P = np.diag(sigma) / sigma_0
 
@@ -494,12 +494,12 @@ class Tests:
         x_LS = X[0] + X[1] * t[-1]
         x_LS_first = X[0] + X[1] * t[0]
         # вычисляем вектор невязок
-        V = A.dot(X) + L  #
+        V = A.dot(X) - L  #
         Qx = np.linalg.pinv(N)
         # СКП единицы веса
-        mu = np.sqrt(np.sum(V.transpose().dot(P).dot(V)) / (V.shape[0] - 2))  # я тут не уверен
-        Qv = Qx[1, 1]
-        return (x_LS_first, x_LS, Qv, mu)
+        mu = np.sqrt(np.sum(V.transpose().dot(P).dot(V))/(V.shape[0]-2))
+        Qv = np.sqrt(Qx[1, 1] * mu ** 2 + Qx[0, 0] * mu ** 2 * t[-1])
+        return x_LS_first, x_LS, Qv, mu
 
     def geometric_chi_test_statictics(self, station,
                                       time_series_df,
@@ -510,6 +510,8 @@ class Tests:
         wls_times = []
         initial_values_X = []
         initial_values_Qv = []
+        initial_values_mu = []
+        mu_list = []
 
         time_series_df['Date'] = pd.to_datetime(time_series_df['Date'])
         time_series_df.set_index('Date', inplace=True)
@@ -526,15 +528,17 @@ class Tests:
             'y_') else f'sdu_{station}' for col in coord_cols]
 
         for coord_col, sigma_col in zip(coord_cols, sigma_cols):
-            x_LS_first, _, Qx, _ = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
+            x_LS_first, _, Qx, mu_first = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
                                                                         sigma=fragment[sigma_col],
                                                                         sigma_0=sigma_0)
             initial_values_X.append(x_LS_first)
             initial_values_Qv.append(Qx)
+            initial_values_mu.append(mu_first)
 
         X_WLS.append(initial_values_X)
         Qv_WLS.append(initial_values_Qv)
         wls_times.append(start_time)
+        mu_list.append(initial_values_mu)
 
         i = 0
 
@@ -545,6 +549,7 @@ class Tests:
 
             x_LS_values = []
             Qx_values = []
+            mu_values = []
 
             # Apply the least squares code to the fragment
             for coord_col, sigma_col in zip(coord_cols, sigma_cols):
@@ -553,9 +558,11 @@ class Tests:
                                                                         sigma_0=sigma_0)
                 x_LS_values.append(x_LS)
                 Qx_values.append(Qx)
+                mu_values.append(mu)
 
             X_WLS.append(x_LS_values)
             Qv_WLS.append(Qx_values)
+            mu_list.append(mu_values)
 
             # Move to the next fragment
             start_time = end_time
@@ -563,25 +570,23 @@ class Tests:
             i += 1
 
         # Convert the lists to numpy arrays
-        X_WLS = np.array(X_WLS)
-        Qv_WLS = np.array(Qv_WLS)
+        X_WLS, Qv_WLS, mu_list = np.array(X_WLS), np.array(Qv_WLS), np.array(mu_list)
 
         time_series_df.reset_index(inplace=True)
+
         wls_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
         Qv_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
+        mu_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
 
         # Assign wls_times to the first column of wls_df
-        wls_df['Date'] = wls_times
-        Qv_df['Date'] = wls_times
+        wls_df['Date'], Qv_df['Date'], mu_df['Date'] = pd.to_datetime(wls_times), pd.to_datetime(wls_times), pd.to_datetime(wls_times)
 
         # Assign the values of X_WLS to the remaining columns of wls_df
         wls_df.iloc[:, 1:] = X_WLS
         Qv_df.iloc[:, 1:] = Qv_WLS
+        mu_df.iloc[:, 1:] = mu_list
 
-        wls_df['Date'] = pd.to_datetime(wls_df['Date'])
-        Qv_df['Date'] = pd.to_datetime(Qv_df['Date'])
-
-        # Calculate the test statistic
+        # Calculate the test statistic (not used - see '_perform_chi2_test')
         test_statistic = np.zeros((X_WLS.shape[0] - 1))
         for l in range(X_WLS.shape[0] - 1):
             Qv = Qv_WLS[l] + Qv_WLS[l + 1]
@@ -589,7 +594,7 @@ class Tests:
             Qdd = np.diag(Qv)
             test_statistic[l] = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
 
-        return X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df
+        return X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_df
 
     def interpolate_missing_values(self, df):
         """
@@ -628,6 +633,7 @@ class Tests:
         filtered_dfs = []
         wls_dfs = []
         Qv_dfs = []
+        mu_dfs = []
 
         for station in station_names:
             # Get the columns corresponding to the current station
@@ -643,7 +649,7 @@ class Tests:
             station_df_filtered = self.filter_data(station_df, kernel_size=11)
 
             # Perform the geometric chi test
-            X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df = self.geometric_chi_test_statictics(station=station,
+            X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(station=station,
                                                                                               time_series_df=station_df_filtered,
                                                                                               window_size=window_size,
                                                                                               sigma_0=sigma_0)
@@ -652,20 +658,29 @@ class Tests:
             filtered_dfs.append(station_df_filtered)
             wls_dfs.append(wls_df)
             Qv_dfs.append(Qv_df)
+            mu_dfs.append((mu_station_df))
 
         # Concatenate the wls_dfs along the columns (axis=1)
         raw = pd.concat(raw_dfs, axis=1)
         filtered = pd.concat(filtered_dfs, axis=1)
         wls = pd.concat(wls_dfs, axis=1)
         Qv = pd.concat(Qv_dfs, axis=1)
+        MU = pd.concat(mu_dfs, axis=1)
+
+        # Calculate the mean value of each row
+        mean_values = MU.drop('Date', axis=1).mean(axis=1)
+        # Create a new DataFrame with the 'Date' column and the mean values
+        mu_mean_df = MU[['Date']].copy()
+        mu_mean_df['mu_mean'] = mean_values
 
         # Remove duplicate 'Date' columns
         raw = raw.loc[:, ~raw.columns.duplicated()]
         filtered = filtered.loc[:, ~filtered.columns.duplicated()]
         wls = wls.loc[:, ~wls.columns.duplicated()]
         Qv = Qv.loc[:, ~Qv.columns.duplicated()]
+        mu_mean_df = mu_mean_df.loc[:, ~mu_mean_df.columns.duplicated()]
 
-        return wls, raw, filtered, Qv
+        return wls, raw, filtered, Qv, mu_mean_df
         # return pd.DataFrame(wls), pd.DataFrame(raw), pd.DataFrame(filtered)
 
 
@@ -750,7 +765,7 @@ def main():
 
     window_size = '1min'
     sigma_value = 0.15 #0.0000005 0.005
-    wls, raw, filtered, Qv = test.perform_wls(df, window_size, sigma_value)
+    wls, raw, filtered, Qv, mu_mean_df = test.perform_wls(df, window_size, 0.01)
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
     # Extract station names from column names
@@ -762,7 +777,7 @@ def main():
 
 
 
-    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=sigma_value, Qv=Qv, max_drop=2)
+    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=mu_mean_df, Qv=Qv, max_drop=2)
 
     offsets_html_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size']).to_html(index=False)
 
