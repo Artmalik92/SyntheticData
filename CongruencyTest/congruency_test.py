@@ -341,8 +341,15 @@ class Tests:
             list: A list of offset points.
         """
         offset_points = []
+
+        # Calculate the mean value of each row
+        mean_values = sigma_0.drop('Date', axis=1).mean(axis=1)
+        # Create a new DataFrame with the 'Date' column and the mean values
+        mu_mean_df = sigma_0[['Date']].copy()
+        mu_mean_df['mu_mean'] = mean_values
+
         ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=df, method=method,
-                                                                         calculation="all_dates", sigma_0=sigma_0, Qv=Qv)
+                                                                         calculation="all_dates", sigma_0=mu_mean_df, Qv=Qv)
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
         print(rejected_dates)
         logger.info('<h2>Finding the offset points:</h2>')
@@ -369,13 +376,23 @@ class Tests:
             date_range_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
             for drop_count in range(1, min(max_drop + 1, len(station_names) + 1)):
                 for station_combination in itertools.combinations(station_names, drop_count):
+                    print(station_combination)
                     logger.info(f'Calculating for stations {station_combination} and dates {start_date} to {end_date}')
                     non_station_df = self.drop_station_columns(date_range_df, station_combination)
                     non_station_qv = self.drop_station_columns(Qv, station_combination)
+                    non_station_sigma = self.drop_station_columns(sigma_0, station_combination)
+
+                    # Calculate the mean value of each row
+                    mean_values = non_station_sigma.drop('Date', axis=1).mean(axis=1)
+                    # Create a new DataFrame with the 'Date' column and the mean values
+                    mu_mean_df = non_station_sigma[['Date']].copy()
+                    mu_mean_df['mu_mean'] = mean_values
+
+
                     ttest_rejected, chi2_rejected = self.congruency_test(df=non_station_df, method=method,
                                                                          calculation="specific_date",
                                                                          start_date=start_date, end_date=end_date,
-                                                                         sigma_0=sigma_0, print_log=False, Qv=non_station_qv)
+                                                                         sigma_0=mu_mean_df, print_log=False, Qv=non_station_qv)
                     if not (ttest_rejected or chi2_rejected):
                         station_cols = [col for col in date_range_df.columns if
                                         any(station in col for station in station_combination)]
@@ -682,8 +699,9 @@ class Tests:
         wls = wls.loc[:, ~wls.columns.duplicated()]
         Qv = Qv.loc[:, ~Qv.columns.duplicated()]
         mu_mean_df = mu_mean_df.loc[:, ~mu_mean_df.columns.duplicated()]
+        MU = MU.loc[:, ~MU.columns.duplicated()]
 
-        return wls, raw, filtered, Qv, mu_mean_df
+        return wls, raw, filtered, Qv, mu_mean_df, MU
         # return pd.DataFrame(wls), pd.DataFrame(raw), pd.DataFrame(filtered)
 
 
@@ -768,7 +786,8 @@ def main():
 
     window_size = '1min'
     sigma_value = 0.15 #0.0000005 0.005
-    wls, raw, filtered, Qv, mu_mean_df = test.perform_wls(df, window_size, 0.005)
+    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.005)
+    #MU.to_csv('Data/MU.csv', sep=';', index=False)
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
     # Extract station names from column names
@@ -780,9 +799,11 @@ def main():
 
 
 
-    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=mu_mean_df, Qv=Qv, max_drop=2)
+    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=MU, Qv=Qv, max_drop=2)
 
-    offsets_html_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size']).to_html(index=False)
+    offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
+    offsets_html_table = offsets_table.to_html(index=False)
+    offsets_table.to_csv('Data/weighted-moments-31-08.csv', sep=';', index=False)
 
     #ttest_rejected_dates, chi2_rejected_dates = test.congruency_test(df, method='coordinate_based')
 
@@ -942,7 +963,7 @@ def main():
         # Add the HTML image to your report
         report_data['offset_plots'] += html_img + "<br>"
 
-    test.save_html_report(report_data=report_data, output_path='Data/test-sigmas-30aug-1min-weight'+'.html')
+    test.save_html_report(report_data=report_data, output_path='Data/dev-31aug-1min-weight'+'.html')
 
     # Remove the StringIO handler
     logger.removeHandler(string_io_handler)
