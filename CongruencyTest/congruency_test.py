@@ -43,12 +43,11 @@ class Tests:
         self.df = df
         self.dates = df['Date'].unique()  # датафрейм с уникальными датами
 
-    def congruency_test(self, df, Qv, method: str,
+    def congruency_test(self, df, Qv, sigma_0, method: str,
                         calculation: str = "all_dates",
                         start_date: str = None,
                         end_date: str = None,
                         threshold: float = 0.05,
-                        sigma_0: float = 0.005,
                         print_log: bool = True):
         """
         Performs a congruence test on the input DataFrame.
@@ -130,6 +129,10 @@ class Tests:
         Qv_sum = Qv_0.iloc[0, 1:] + Qv_i.iloc[0, 1:]
         Qv_sum = np.array(Qv_sum.tolist())
 
+        sigma_0_two_dates = sigma_0[(sigma_0['Date'] >= start_date) & (sigma_0['Date'] <= end_date)]
+        sigma_0_mean = sigma_0_two_dates.iloc[:, 1:].mean(axis=0)
+        sigma_0 = sigma_0_mean.item()
+        print('sigma0', sigma_0)
 
         #std_dev = np.std(np.array(raz_list))
         #sigma_0 = 0.005 #0.0075 0.005
@@ -765,7 +768,7 @@ def main():
 
     window_size = '1min'
     sigma_value = 0.15 #0.0000005 0.005
-    wls, raw, filtered, Qv, mu_mean_df = test.perform_wls(df, window_size, 0.01)
+    wls, raw, filtered, Qv, mu_mean_df = test.perform_wls(df, window_size, 0.005)
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
     # Extract station names from column names
