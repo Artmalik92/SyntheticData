@@ -42,25 +42,22 @@ class Tests:
         self.df = df
         self.dates = df['Date'].unique()  # датафрейм с уникальными датами
 
-    def congruency_test(self, df, Qv, method: str,
+    def congruency_test(self, df, Qv,
                         calculation: str = "all_dates",
                         start_date: str = None,
                         end_date: str = None,
                         threshold: float = 0.05,
-                        sigma_0: float = 0.005,
-                        print_log: bool = True):
+                        sigma_0: float = 0.005):
         """
         Performs a congruence test on the input DataFrame.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            method (str): The method to use for the congruence test (line_based or coordinate_based).
             calculation (str, optional): The type of calculation to perform (all_dates or specific_date). Defaults to "all_dates".
             start_date (str, optional): The start date for the calculation. Defaults to None.
             end_date (str, optional): The end date for the calculation. Defaults to None.
             threshold (float, optional): The threshold value for the test. Defaults to 0.05.
             sigma_0 (float, optional): The sigma_0 value for the Chi2 test. Defaults to 0.005.
-            print_log (bool, optional): Whether to print the log. Defaults to True.
 
         Returns:
             tuple: A tuple containing the rejected dates for the T-test and Chi2 test.
@@ -70,23 +67,19 @@ class Tests:
         chi2_rejected_dates = []
 
         if calculation == "all_dates":
-            self._run_all_dates(df, method, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv)
+            self._run_all_dates(df, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv)
         elif calculation == "specific_date":
-            self._run_specific_date(df, method, start_date, end_date, threshold, sigma_0, ttest_rejected_dates,
+            self._run_specific_date(df, start_date, end_date, threshold, sigma_0, ttest_rejected_dates,
                                     chi2_rejected_dates, Qv=Qv)
-
-        if print_log:
-            self._print_results(ttest_rejected_dates, chi2_rejected_dates)
 
         return ttest_rejected_dates, chi2_rejected_dates
 
-    def _run_all_dates(self, df, method, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv):
+    def _run_all_dates(self, df, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv):
         """
         Runs the congruence test for all dates in the DataFrame.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            method (str): The method to use for the congruence test (line_based or coordinate_based).
             threshold (float): The threshold value for the test.
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
@@ -100,24 +93,24 @@ class Tests:
             end_date = dates[i + 1]
             logger.info(f"Calculating for dates: {start_date} and {end_date}")
             # Вызов функции congruency_test для каждой пары дат
-            self._run_specific_date(df, method, start_date, end_date, threshold,
+            self._run_specific_date(df, start_date, end_date, threshold,
                                     sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv)
 
-    def _run_specific_date(self, df, method, start_date, end_date, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv):
+    def _run_specific_date(self, df, start_date, end_date, threshold, sigma_0,
+                           ttest_rejected_dates, chi2_rejected_dates, Qv):
         """
         Runs the congruence test for a specific date range.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            method (str): The method to use for the congruence test (line_based or coordinate_based).
             start_date (str): The start date for the calculation.
             end_date (str): The end date for the calculation.
             threshold (float): The threshold value for the test.
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
         """
-        #stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
-        raz_list = self._calculate_raz_list(df, method, start_date, end_date)
+
+        raz_list = self._calculate_raz_list(df, start_date, end_date)
 
         Qv.iloc[:, 1:] = Qv.iloc[:, 1:].apply(pd.to_numeric)
 
@@ -127,21 +120,7 @@ class Tests:
         Qv_sum = Qv_0.iloc[0, 1:] + Qv_i.iloc[0, 1:]
         Qv_sum = np.array(Qv_sum.tolist())
 
-
-        #std_dev = np.std(np.array(raz_list))
-        #sigma_0 = 0.005 #0.0075 0.005
-        #  sigma_0 = std_dev
-        #print(f"std dev of data: {std_dev}")
         logger.info('Shapiro: %s', shapiro(raz_list))
-
-        '''ttest_result, pvalue = self._perform_ttest(raz_list, threshold)
-        print("T-test: ", end="")
-        if ttest_result:
-            ttest_rejected_dates.append((start_date, end_date, pvalue))
-            print(Fore.RED + f"Нулевая гипотеза отвергается, pvalue = {round(pvalue, 3)}")
-        else:
-            print(Fore.GREEN + f"Нулевая гипотеза не отвергается, pvalue = {round(pvalue, 3)}")
-        print(Fore.RESET, end="")'''
 
         chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum)
         if chi2_result:
@@ -153,93 +132,34 @@ class Tests:
                         f" K = {round(K, 3)}")
         logger.info("")
 
-    def _calculate_raz_list(self, df, method, start_date, end_date, stations=None):
+    def _calculate_raz_list(self, df, start_date, end_date):
         """
         Calculates the list of differences for the congruence test.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            method (str): The method to use for the congruence test (line_based or coordinate_based).
             start_date (str): The start date for the calculation.
             end_date (str): The end date for the calculation.
-            stations (list): A list of stations.
 
         Returns:
             list: A list of differences for the congruence test.
         """
-        raz_list = []
 
         # Конвертация столбцов с координатами в числовой формат
-        df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric)  #errors='coerce'
+        df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric)
 
         row_0 = df[df['Date'] == start_date]
         row_i = df[df['Date'] == end_date]
 
+        # Check if both rows exist
+        if row_0.empty or row_i.empty:
+            return None
 
-        """if method == 'line_based':
-            ''' метод, основанный на вычислении разностей базовых линий на разные эпохи '''
-            values_0 = self._calculate_baselines(df, start_date, stations)   # Словарь координат на начальную эпоху
-            values_i = self._calculate_baselines(df, end_date, stations)     # Словарь координат на i-ую эпоху
-            # Заполнение списка разностями
-            for line1 in values_0:
-                for line2 in values_i:
-                    if line1[0] == line2[0] and line1[1] == line2[1]:
-                        raz_list.append(line1[2] - line2[2])"""
-        if method == 'coordinate_based':
-            ''' метод, основанный на вычислении разностей координат пунктов на разные эпохи '''
+        # Subtract the values of the corresponding columns
+        result = row_0.iloc[0, 1:] - row_i.iloc[0, 1:]
 
-            # Check if both rows exist
-            if row_0.empty or row_i.empty:
-                return None
-
-            # Subtract the values of the corresponding columns
-            result = row_0.iloc[0, 1:] - row_i.iloc[0, 1:]
-
-            # Return the result as a list
-            return result.tolist()
-
-        ''' values_0 = self._calculate_coordinates(df, start_date, stations)  # Словарь координат на начальную эпоху
-            values_i = self._calculate_coordinates(df, end_date, stations)    # Словарь координат на i-ую эпоху
-            # Заполнение списка разностями
-            for station, coord_0 in values_0.items():
-                if station in values_i:
-                    coord_i = values_i[station]
-                    raz = np.subtract(coord_i, coord_0)
-                    raz_list.extend(raz)'''
-
-        '''return raz_list'''
-
-    def _calculate_baselines(self, df, date, stations):
-        """
-        Calculates the baselines for the given date and stations.
-
-        Args:
-            df (DataFrame): The input DataFrame containing time series data.
-            date (str): The date for the calculation.
-            stations (list): A list of stations.
-
-        Returns:
-            list: A list of baselines for the given date and stations.
-        """
-        lines = []  # Список для хранения базовых линий
-        computed_pairs = set()  # Множество для хранения уже вычисленных пар пунктов
-        for station in stations:  # Цикл для определения БЛ
-            station_df = df.loc[(df['Date'] == date) & (df['Station'] == station)]  # координаты на дату
-            for other_station in stations:  # проверяем, чтобы алгоритм не сравнивал один пункт сам с собой
-                if other_station == station:
-                    continue
-                pair = tuple(sorted([station, other_station]))  # сортировка уникальных пар пунктов
-                if pair in computed_pairs:
-                    continue  # базовая линия уже вычислена, пропускаем повторное вычисление
-                other_station_df = df.loc[(df['Date'] == date) & (df['Station'] == other_station)]
-                dist = np.sqrt((station_df['X'].values - other_station_df['X'].values) ** 2  # вычисление БЛ
-                               + (station_df['Y'].values - other_station_df['Y'].values) ** 2
-                               + (station_df['Z'].values - other_station_df['Z'].values) ** 2)
-                if len(dist) > 0:
-                    line = [station, other_station, dist.mean()]
-                    lines.append(line)
-                    computed_pairs.add(pair)  # добавляем пару во множество уже вычисленных пар
-        return lines
+        # Return the result as a list
+        return result.tolist()
 
     def _calculate_coordinates(self, df, date, stations):
         """
@@ -378,87 +298,6 @@ class Tests:
         station_cols = [col for col in df.columns if any(station in col for station in stations)]
         return df.drop(station_cols, axis=1)
 
-    def auto_sigma(self, df, method, sigma_range=(0.005, 0.01), step_size=0.001, threshold=0.05):
-        best_sigma_0 = None
-        best_diff = float('inf')
-
-        sigma_values = np.arange(sigma_range[0], sigma_range[1] + step_size, step_size)
-
-        for sigma_0 in sigma_values:
-            logger.info(f"<h3>Testing sigma_0 = {sigma_0}</h3>")
-            _, chi2_rejected_dates = self.congruency_test(df, method, sigma_0=sigma_0, threshold=threshold,
-                                                          print_log=False)
-            if chi2_rejected_dates:
-                start_date, end_date = chi2_rejected_dates[0]
-                stations = df.loc[(df['Date'] >= start_date) & (df['Date'] <= end_date), 'Station'].unique()
-                raz_list = self._calculate_raz_list(df, method, start_date, end_date, stations)
-                _, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold)
-
-                diff = abs(K - test_value)
-                if diff < best_diff:
-                    best_diff = diff
-                    best_sigma_0 = sigma_0
-                logger.info(f"<h3>Current sigma_0 = {sigma_0}, diff = {diff}, best_sigma_0 = {best_sigma_0}</h3>")
-
-        if best_sigma_0 is None:
-            print("No rejected dates found")
-            return None
-
-        logger.info(f"<h3>Optimal sigma_0 found: {best_sigma_0}</h3>")
-        return best_sigma_0
-
-    def _objective(self, sigma_0, d, threshold):
-        """
-        Objective function to minimize the absolute difference between K and the test value.
-
-        Args:
-            sigma_0 (float): The sigma_0 value being tested.
-            d (np.array): Array of differences.
-            threshold (float): The threshold value for the test.
-
-        Returns:
-            float: The absolute difference between K and the test value.
-        """
-        Qdd = np.eye(d.shape[0])
-        K = d.transpose().dot(pinv(Qdd)).dot(d) / (sigma_0 ** 2)
-        test_value = chi2.ppf(df=d.shape[0], q=threshold)
-        return abs(K - test_value)
-
-    def _perform_chi2_test_ai(self, raz_list, threshold):
-        """
-        Performs a Chi2 test on the given list of differences, automatically optimizing sigma_0.
-
-        Args:
-            raz_list (list): The list of differences.
-            threshold (float): The threshold value for the test.
-
-        Returns:
-            tuple: A tuple containing the result of the Chi2 test, K-value, test value, and optimal sigma_0.
-        """
-        d = np.array(raz_list)
-
-        # Initial guess for sigma_0
-        initial_sigma_0 = 1.0
-
-        # Define bounds to ensure sigma_0 is positive
-        bounds = [(1e-6, None)]
-
-        # Use minimize to find the best sigma_0 with bounds
-        result = minimize(self._objective, initial_sigma_0, args=(d, threshold), bounds=bounds, method='L-BFGS-B')
-
-        # Optimal sigma_0
-        optimal_sigma_0 = result.x[0]
-
-        # Calculate K and test_value with optimal sigma_0
-        Qdd = np.eye(d.shape[0])
-        K = d.transpose().dot(pinv(Qdd)).dot(d) / (optimal_sigma_0 ** 2)
-        test_value = chi2.ppf(df=d.shape[0], q=threshold)
-
-        if K > test_value:
-            return True, K, test_value, optimal_sigma_0
-        else:
-            return False, K, test_value, optimal_sigma_0
-
     def geometric_chi_test_calc(self, time_series_frag, sigma, sigma_0):
         # Mask NaN values
         mask = ~np.isnan(time_series_frag)
@@ -485,7 +324,7 @@ class Tests:
 
     def geometric_chi_test_statictics(self, time_series_df,
                                       window_size,
-                                      sigma_0):  # в проге нужно сделать так, чтобы сигмы брать из pos-файла. в тестовом скрипте этого нет
+                                      sigma_0):
         X_WLS = []
         Qv_WLS = []
         wls_times = []
@@ -645,22 +484,6 @@ class Tests:
 
 
 
-    def _print_results(self, ttest_rejected_dates, chi2_rejected_dates):
-        """
-        Prints the results of the congruence test.
-
-        Args:
-            ttest_rejected_dates (list): A list of rejected dates for the T-test.
-            chi2_rejected_dates (list): A list of rejected dates for the Chi2 test.
-        """
-        logger.info("----------------------------")
-        logger.info(f"Всего выполнено тестов: {len(self.dates)}.")
-        logger.info(f"Хи-квадрат, не отвергнуто: {len(self.dates) - len(chi2_rejected_dates)}, "
-              f"отвергнуто: {len(chi2_rejected_dates)} ({len(chi2_rejected_dates) / len(self.dates) * 100:.2f}%)")
-        logger.info(f"Т-тест, не отвергнуто: {len(self.dates) - len(ttest_rejected_dates)}, "
-              f"отвергнуто: {len(ttest_rejected_dates)} ({len(ttest_rejected_dates) / len(self.dates) * 100:.2f}%)")
-
-        logger.info(f"Chi2 rejected dates: {chi2_rejected_dates}")
 
     def save_html_report(self, report_data, output_path):
         html_template = """
@@ -680,11 +503,8 @@ class Tests:
             <p><strong>Total stations processed:</strong> {{ stations_length }}</p>
             <p><strong>Stations names:</strong> {{ stations_names }}</p>
             <p><strong>WLS window size:</strong> {{ window_size }}</p>
-            <p><strong>Optimal Sigma:</strong> {{ best_sigma_0 }}</p>
             <p><strong>Offset Points:</strong></p>
             {{ offset_points }}
-            <h2>Stations Map:</h2>
-            {{ triangulation_map }}
             <h2>Points with offsets:</h2>
             {{ offset_plots }}
             <h2>Detailed Log:</h2>
@@ -702,8 +522,7 @@ class Tests:
 
 def select_file():
     file_path = filedialog.askopenfilename(title="Select input file",
-                                           filetypes=[("CSV files", "*.csv")],
-                                           initialdir="E:/docs_for_univer/Diplom_project/diplom/CongruencyTest/Data")
+                                           filetypes=[("CSV files", "*.csv")])
     return file_path
 
 
@@ -715,13 +534,7 @@ def main():
     file_path = select_file()
     df = pd.read_csv(file_path, delimiter=';')
 
-    #df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d %H:%M:%S.%f', errors='coerce').dt.round('s')
-    #df['Date'] = df['Date'].apply(parse).dt.normalize()
-    #df['Date'].apply(parse).dt.floor('s')
-
     test = Tests(df)
-
-    #best_sigma = test.auto_sigma(df, method='coordinate_based', sigma_range=(0.005, 0.01))
 
     window_size = '1min'
     wls, raw, filtered, Qv = test.perform_wls(df, window_size, 0.015)
@@ -730,19 +543,11 @@ def main():
     # Extract station names from column names
     stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
-    raz_list = test._calculate_raz_list(wls, method='coordinate_based', start_date=min(wls['Date']),
-                                        end_date=max(wls['Date']))
-    _, _, _, best_sigma = test._perform_chi2_test_ai(raz_list, threshold=0.05)
-
-
-
     offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=0.005, Qv=Qv, max_drop=2)
-    print(offset_points)
 
     offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
     offsets_html_table = offsets_table.to_html(index=False)
     offsets_table.to_csv('Data/moments.csv', sep=';', index=False)
-    #ttest_rejected_dates, chi2_rejected_dates = test.congruency_test(df, method='coordinate_based')
 
     # Get the log contents
     string_io_handler.flush()
@@ -761,65 +566,10 @@ def main():
         'stations_length': len(stations),
         'stations_names': stations,
         'window_size': window_size,
-        'best_sigma_0': best_sigma,
         'offset_points': offsets_html_table,
         'offset_plots': '',
         'triangulation_map': '',
         'log_contents': log_contents}
-
-    try:
-        # Find the epoch with the most stations
-        station_counts = df['Date'].value_counts()
-        most_stations_epoch = station_counts.index[0]
-
-        # Filter the data for the most stations epoch
-        df_most_stations = df[df['Date'] == most_stations_epoch]
-        df_last_date = df_most_stations
-
-        # Define the ENU and BLH CRS objects
-        enu_crs = pyproj.CRS.from_epsg(4978)
-        # Define the Web Mercator CRS object
-        webmercator_crs = pyproj.CRS.from_epsg(3857)
-
-        # Define the projection systems
-        blh_proj = pyproj.Proj(proj='longlat', ellps='WGS84', datum='WGS84')
-        webmercator_proj = pyproj.Proj(init='epsg:3857')
-
-        """# Convert BLH coordinates to Web Mercator
-        df_last_date['x_webmercator'], df_last_date['y_webmercator'] = pyproj.transform(blh_proj, webmercator_proj,
-                                                                                        df_last_date['L'].values,
-                                                                                        df_last_date['B'].values)
-        """
-        # Transform ENU coordinates to Web Mercator
-        df_last_date['x_webmercator'], df_last_date['y_webmercator'], _ = pyproj.transform(
-            enu_crs, webmercator_crs, df_last_date['X'].values, df_last_date['Y'].values, df_last_date['Z'].values)
-
-        # Create the triangulation plot
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.scatter(df_last_date['x_webmercator'], df_last_date['y_webmercator'])
-
-        # Add a real earth map as the background
-        ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik)
-
-        # Plot station names
-        for index, row in df_last_date.iterrows():
-            ax.annotate(row['Station'], xy=(row['x_webmercator'], row['y_webmercator']), xytext=(0, 10),
-                        textcoords='offset points', ha='center', va='bottom')
-
-        # Highlight stations with offsets
-        offset_stations = [station for station, offsets in station_offsets.items() if offsets]
-        for station in offset_stations:
-            station_df = df_last_date[df_last_date['Station'] == station]
-            ax.scatter(station_df['x_webmercator'], station_df['y_webmercator'], c='red', marker='*', s=100)
-
-        buf = BytesIO()
-        fig.savefig(buf, format='png', bbox_inches='tight')
-        buf.seek(0)
-        triangulation_map = base64.b64encode(buf.getvalue()).decode('utf-8')
-        report_data['triangulation_map'] = f"<img src='data:image/png;base64,{triangulation_map}'><br>"
-        plt.close(fig)
-    except Exception as e:
-        print(e)
 
     # Create plots for each station with multiple offsets
     for station, offsets in station_offsets.items():
@@ -897,7 +647,7 @@ def main():
         # Add the HTML image to your report
         report_data['offset_plots'] += html_img + "<br>"
 
-    test.save_html_report(report_data=report_data, output_path='Data/test-30aug-1min'+'.html')
+    test.save_html_report(report_data=report_data, output_path='congruency_test_report'+'.html')
 
     # Remove the StringIO handler
     logger.removeHandler(string_io_handler)
