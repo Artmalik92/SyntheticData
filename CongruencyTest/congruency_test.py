@@ -762,7 +762,7 @@ def main() -> None:
         report_data['offset_plots'] += html_img + "<br>"
 
     # Сохранение отчета в файл
-    test.save_html_report(report_data=report_data, output_path='congruency_test_report'+'.html')
+    test.save_html_report(report_data=report_data, output_path='Data/congruency_test_report'+'.html')
 
     # удаляем обработчик StringIO
     logger.removeHandler(string_io_handler)
