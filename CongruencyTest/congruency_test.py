@@ -138,10 +138,6 @@ class Tests:
         Qv_sum = Qv_0.iloc[0, 1:] + Qv_i.iloc[0, 1:]
         Qv_sum = np.array(Qv_sum.tolist())
 
-        sigma_0_two_dates = sigma_0[(sigma_0['Date'] >= start_date) & (sigma_0['Date'] <= end_date)]
-        sigma_0_mean = sigma_0_two_dates.iloc[:, 1:].mean(axis=0)
-        sigma_0 = sigma_0_mean.item()
-
         logger.info('Shapiro: %s', shapiro(raz_list))
 
         chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum)
@@ -224,7 +220,7 @@ class Tests:
         """
         d = np.array(raz_list)
 
-        Qdd = np.diag(Qv)
+        Qdd = np.eye(d.shape[0])
         K = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
         test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
 
