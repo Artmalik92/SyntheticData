@@ -336,32 +336,61 @@ class Tests:
         Returns:
             tuple: A tuple containing the x_LS_first, x_LS, Qv, and mu values.
         """
+        time_series_frag = pd.DataFrame(time_series_frag)
+        time_series_frag.reset_index(drop=True, inplace=True)
+        time_series_frag.columns = [0, 1, 2]
+        print('TIME SERIES FRAG', time_series_frag, '\n')
+
         # маска для NaN значений
         mask = ~np.isnan(time_series_frag)
-        L = time_series_frag[mask]
+
+        L = np.zeros((time_series_frag.shape[0] * 3))
 
         # задаем массив эпох
-        t = np.arange(0, L.size, 1)
+        t = np.arange(0, time_series_frag.shape[0], 1)
 
-        A = np.zeros((L.size, 2))
-        for m in range(L.size):
+        # Заполняем массив L
+        for i in range(time_series_frag.shape[0]):
+            for j in range(3):
+                L[3 * i] = time_series_frag[0][i]
+                L[3 * i + 1] = time_series_frag[1][i]
+                L[3 * i + 2] = time_series_frag[2][i]
+
+        print('МАССИВ L', L, '\n')
+
+        # цикл формирования матрицы коэффициентов
+        for m in range(time_series_frag.shape[0]):
             ti = t[m]
-            A[m] = np.array([1, ti])
+            if m == 0:
+                A = np.hstack((np.identity(3) * ti, np.identity(3)))
+            else:
+                Aux = np.hstack((np.identity(3) * ti, np.identity(3)))
+                A = np.vstack((A, Aux))
 
-        P = np.diag(sigma) / sigma_0
+        print('NP LINALG COND A:', np.linalg.cond(A), '\n')
+        print('МАТРИЦА A:\n', A, '\n')
+
+        P = np.diag(sigma) / sigma_0 # сюда нужно вложить матрицу ковариационную
 
         # решаем СЛАУ
-        N = A.transpose().dot(P).dot(A)
-        X = np.linalg.pinv(N).dot(A.transpose().dot(P).dot(L))  # вектор параметров кинематической модели
-        x_LS = X[0] + X[1] * t[-1]
+        N = A.transpose().dot(np.linalg.inv(P)).dot(A)
+        X = np.linalg.inv(N).dot(A.transpose().dot(np.linalg.inv(P)).dot(L))  # вектор параметров кинематической модели
+        x_LS = np.array([X[0] * t[-1] + X[3], X[1] * t[-1] + X[4], X[2] * t[-1] + X[5]])
+
         x_LS_first = X[0] + X[1] * t[0]
+
         # вычисляем вектор невязок
-        V = A.dot(X) - L  #
-        Qx = np.linalg.pinv(N)
+        V = A.dot(X) - L
+
         # СКП единицы веса
-        mu = np.sqrt(np.sum(V.transpose().dot(P).dot(V))/(V.shape[0]-2))
-        Qv = np.sqrt(Qx[1, 1] * mu ** 2 + Qx[0, 0] * mu ** 2 * t[-1])
-        return x_LS_first, x_LS, Qv, mu
+        mu = np.sqrt(np.sum(V.transpose().dot(np.linalg.inv(P)).dot(V)) / (V.shape[0] - 6))
+        Qx = np.linalg.inv(N) * mu ** 2
+        С = np.array([[t[-1], 0, 0, 1, 0, 0], [0, t[-1], 0, 0, 1, 0], [0, 0, t[-1], 0, 0, 1]])
+        Qv = С.dot(Qx).dot(С.transpose())
+
+        print('QV:', Qv, '\n')
+
+        return x_LS_first, x_LS, Qv, mu, Qx
 
     def geometric_chi_test_statictics(self, station,
                                       time_series_df: DataFrame,
@@ -397,17 +426,20 @@ class Tests:
 
         coord_cols = [col for col in fragment.columns if
                       col.startswith('x_') or col.startswith('y_') or col.startswith('z_')]
-
+        print('coord_cols:\n', coord_cols, '\n')
         sigma_cols = [f'sde_{station}' if col.startswith('x_') else f'sdn_{station}' if col.startswith(
             'y_') else f'sdu_{station}' for col in coord_cols]
+        print('sigma_cols:\n', sigma_cols, '\n')
+        covariance_cols = [f'sden_{station}' if col.startswith('x_') else f'sdnu_{station}' if col.startswith(
+            'y_') else f'sdue_{station}' for col in coord_cols]
+        print('COVARIANCE COLUMNS:\n', covariance_cols, '\n')
 
-        for coord_col, sigma_col in zip(coord_cols, sigma_cols):
-            x_LS_first, _, Qx, mu_first = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
-                                                                        sigma=fragment[sigma_col],
+        x_LS_first, _, Qx, mu_first = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                        sigma=fragment[sigma_cols],
                                                                         sigma_0=sigma_0)
-            initial_values_X.append(x_LS_first)
-            initial_values_Qv.append(Qx)
-            initial_values_mu.append(mu_first)
+        initial_values_X.append(x_LS_first)
+        initial_values_Qv.append(Qx)
+        initial_values_mu.append(mu_first)
 
         X_WLS.append(initial_values_X)
         Qv_WLS.append(initial_values_Qv)
@@ -426,13 +458,12 @@ class Tests:
             mu_values = []
 
             # Apply the least squares code to the fragment
-            for coord_col, sigma_col in zip(coord_cols, sigma_cols):
-                x_LS_first, x_LS, Qx, mu = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
-                                                                        sigma=fragment[sigma_col].values,
+            x_LS_first, x_LS, Qx, mu = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                        sigma=fragment[sigma_cols].values,
                                                                         sigma_0=sigma_0)
-                x_LS_values.append(x_LS)
-                Qx_values.append(Qx)
-                mu_values.append(mu)
+            x_LS_values.append(x_LS)
+            Qx_values.append(Qx)
+            mu_values.append(mu)
 
             X_WLS.append(x_LS_values)
             Qv_WLS.append(Qx_values)
