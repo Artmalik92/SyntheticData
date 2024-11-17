@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog
 import base64
-import contextily as ctx
+#import contextily as ctx
 import pyproj
 import itertools
 import plotly.graph_objects as go
@@ -68,7 +68,7 @@ class Tests:
             tuple: A tuple containing the rejected dates for the T-test and Chi2 test.
         """
 
-        ttest_rejected_dates = []
+        ttest_rejected_dates = [] 
         chi2_rejected_dates = []
 
         if calculation == "all_dates":
@@ -915,7 +915,7 @@ def main():
         ax.scatter(df_last_date['x_webmercator'], df_last_date['y_webmercator'])
 
         # Add a real earth map as the background
-        ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik)
+        #ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik)
 
         # Plot station names
         for index, row in df_last_date.iterrows():

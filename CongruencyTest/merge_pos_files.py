@@ -133,15 +133,15 @@ def makefile(directory: str,
     return merged_df
 
 
-zero_epoch_coordinates = json.load(open('Artem_full/first_epoch.json'))
+#zero_epoch_coordinates = json.load(open('Artem_full/first_epoch.json'))
 
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "NSK1", "NVS2", "BUZZ"],
                        zero_epoch_coords=None,
                        dropna=False,
-                       directory='Artem_full/2024-08-31',
+                       directory='Artem_kinematic_all/2024-08-30',
                        resample_interval=None)
 
-merged_data.to_csv('Data/with-sigmas-2024-08-31.csv', sep=';', index=False)
+merged_data.to_csv('Data/dev-2024-08-30.csv', sep=';', index=False)
 
 print('Done')
 
