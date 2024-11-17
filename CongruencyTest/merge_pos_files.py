@@ -25,8 +25,10 @@ def resample(data: list,
     Вытаскиваем из .pos файла колонки
     [0] - дата
     [1, 2, 3] - координаты
-    [6, 7, 8] - значения сигма '''
-    df = df.iloc[:, [0, 1, 2, 3, 6, 7, 8]]
+    [6, 7, 8] - значения сигма 
+    [9, 10, 11] - парные ковариации 
+    '''
+    df = df.iloc[:, [0, 1, 2, 3, 6, 7, 8, 9, 10, 11]]
 
     df[0] = pd.to_datetime(df[0])  # Ставим правильный формат даты
     df[0] = df[0].dt.round('s')  # убираем миллисекунды
@@ -42,7 +44,10 @@ def resample(data: list,
                             3: f'z_{station}',
                             6: f'sde_{station}',
                             7: f'sdn_{station}',
-                            8: f'sdu_{station}'})
+                            8: f'sdu_{station}',
+                            9: f'sden_{station}',
+                            10: f'sdnu_{station}',
+                            11: f'sdue_{station}'})
 
     # Ресемплинг файла с определенным интервалом даты (опционально)
     if resample_interval is not None:
@@ -53,7 +58,10 @@ def resample(data: list,
             print(e)
 
     # Определение порядка колонок
-    df = df.loc[:, ['Date', f'x_{station}', f'y_{station}', f'z_{station}', f'sde_{station}', f'sdn_{station}', f'sdu_{station}']]
+    df = df.loc[:, ['Date',
+                    f'x_{station}',f'y_{station}', f'z_{station}',
+                    f'sde_{station}', f'sdn_{station}', f'sdu_{station}',
+                    f'sden_{station}', f'sdnu_{station}', f'sdue_{station}']]
 
     return df
 
@@ -141,7 +149,7 @@ merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK
                        directory='Artem_kinematic_all/2024-08-30',
                        resample_interval=None)
 
-merged_data.to_csv('Data/kinematic-2024-08-30.csv', sep=';', index=False)
+merged_data.to_csv('Data/ver-1-2-0-2024-08-30.csv', sep=';', index=False)
 
 print('Done')
 
