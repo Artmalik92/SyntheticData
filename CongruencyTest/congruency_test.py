@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from numpy.linalg import pinv
 import pandas as pd
@@ -138,6 +139,10 @@ class Tests:
         Qv_sum = Qv_0.iloc[0, 1:] + Qv_i.iloc[0, 1:]
         Qv_sum = np.array(Qv_sum.tolist())
 
+        sigma_0_two_dates = sigma_0[(sigma_0['Date'] >= start_date) & (sigma_0['Date'] <= end_date)]
+        sigma_0_mean = sigma_0_two_dates.iloc[:, 1:].mean(axis=0)
+        sigma_0 = sigma_0_mean.item()
+
         logger.info('Shapiro: %s', shapiro(raz_list))
 
         chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum)
@@ -220,7 +225,8 @@ class Tests:
         """
         d = np.array(raz_list)
 
-        Qdd = np.eye(d.shape[0])
+        Qdd = np.diag(Qv)
+        # Qdd = np.eye(d.shape[0])
         K = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
         test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
 
@@ -231,7 +237,6 @@ class Tests:
 
     def find_offset_points(self,
                            df: DataFrame,
-                           method: str,
                            sigma_0,
                            Qv: DataFrame,
                            max_drop: int = 1) -> list:
@@ -608,8 +613,48 @@ class Tests:
             file.write(html_content)
         return output_path
 
+    def extract_offset_windows(self, df, rejected_dates):
+        offset_windows = []
 
-def select_file() -> str:
+        for start_date, end_date in rejected_dates:
+            window = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
+            offset_windows.append(window)
+
+        return offset_windows
+
+    def window_iteration(self, df):
+        window_sizes = ['1h', '10min', '1min']
+        df['Date'] = pd.to_datetime(df['Date'])
+        offset_windows = [df]
+
+        # Iterate over the offset windows with decreasing window sizes
+        rejected_dates_list = []
+        for window_size in window_sizes:
+            new_offset_windows = []
+            for offset_window in offset_windows:
+                print(f"Processing window of size {window_size}")
+                # Run the wls inside each offsetted dataframe with the current window size
+                wls, raw, filtered, Qv, mu_mean_df, MU = self.perform_wls(offset_window, window_size, 0.005)
+
+                # Get the rejected dates and extract intervals
+                ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=wls, calculation="all_dates",
+                                                                                 sigma_0=mu_mean_df,
+                                                                                 Qv=Qv)
+                rejected_dates = ttest_rejected_dates + chi2_rejected_dates
+                if rejected_dates:
+                    print(f"Rejected dates: {rejected_dates}")
+                    new_offset_windows.extend(self.extract_offset_windows(df, rejected_dates))
+
+                    # Store the rejected dates for the current window size
+                    rejected_dates_list.append(rejected_dates)
+
+            offset_windows = new_offset_windows
+
+        # Output the final 1-second intervals and rejected dates
+        return offset_windows, rejected_dates_list[-1]
+
+
+def select_file() -> tuple:
     """
     Selects an input file using a file dialog.
 
@@ -618,7 +663,8 @@ def select_file() -> str:
     """
     file_path = filedialog.askopenfilename(title="Select input file",
                                            filetypes=[("CSV files", "*.csv")])
-    return file_path
+    file_name = os.path.basename(file_path)
+    return file_path, file_name
 
 
 def main() -> None:
@@ -627,7 +673,7 @@ def main() -> None:
     """
 
     # чтение входного файла
-    file_path = select_file()
+    file_path, file_name = select_file()
     df = pd.read_csv(file_path, delimiter=';')
 
     # инициализация объекта Tests
@@ -646,14 +692,24 @@ def main() -> None:
     stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
     # Геометрический тест + поиск станций со смещением
-    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=MU, Qv=Qv, max_drop=2)
+    offset_points = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2)
+
+    ''' for window iteration
+    offsets, offset_dates = test.window_iteration(df)
+    print('offsets', offset_dates)
+    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=MU, Qv=Qv, max_drop=2,
+                                            rejected_dates=offset_dates)
+    '''
 
     # сохранение результатов в таблицу для HTML отчета
     offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
     offsets_html_table = offsets_table.to_html(index=False)
 
+    # создание папки с результатами
+    result_directory = f'Data/CongruencyTest-{file_name}'
+    os.makedirs(result_directory, exist_ok=True)
     # сохранение смещений в виде csv таблицы
-    offsets_table.to_csv('congruency_test_offsets_table.csv', sep=';', index=False)
+    offsets_table.to_csv(f'{result_directory}/Offsets-table-{file_name}.csv', sep=';', index=False)
 
     # получение логов
     string_io_handler.flush()
@@ -758,7 +814,7 @@ def main() -> None:
         report_data['offset_plots'] += html_img + "<br>"
 
     # Сохранение отчета в файл
-    test.save_html_report(report_data=report_data, output_path='Data/congruency_test_report'+'.html')
+    test.save_html_report(report_data=report_data, output_path=f'{result_directory}/CongruencyTest-report-{file_name}'+'.html')
 
     # удаляем обработчик StringIO
     logger.removeHandler(string_io_handler)
