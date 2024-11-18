@@ -324,7 +324,8 @@ class Tests:
     def geometric_chi_test_calc(self,
                                 time_series_frag: np.ndarray,
                                 sigma: np.ndarray,
-                                sigma_0) -> tuple:
+                                sigma_0,
+                                covariances) -> tuple:
         """
         A method that is used in geometric_chi_test_statictics to perform geometric chi test.
 
@@ -339,7 +340,17 @@ class Tests:
         time_series_frag = pd.DataFrame(time_series_frag)
         time_series_frag.reset_index(drop=True, inplace=True)
         time_series_frag.columns = [0, 1, 2]
+
+        sigma = pd.DataFrame(sigma)
+        sigma.reset_index(drop=True, inplace=True)
+        sigma.columns = [0, 1, 2]
+
+        covariances = pd.DataFrame(covariances)
+        covariances.reset_index(drop=True, inplace=True)
+        covariances.columns = [0, 1, 2]
         print('TIME SERIES FRAG', time_series_frag, '\n')
+        print('СКП (SIGMA) FRAG', sigma, '\n')
+        print('COVARIANCES:', covariances, '\n')
 
         # маска для NaN значений
         mask = ~np.isnan(time_series_frag)
@@ -370,11 +381,40 @@ class Tests:
         print('NP LINALG COND A:', np.linalg.cond(A), '\n')
         print('МАТРИЦА A:\n', A, '\n')
 
-        P = np.diag(sigma) / sigma_0 # сюда нужно вложить матрицу ковариационную
+        '''for i in range(1):
+            if i==0:
+                Q = np.hstack((np.identity(3)*i, np.identity(3), np.identity(3)))
+            else:
+                Qux = np.hstack((np.identity(3)*i, np.identity(3), np.identity(3)))
+                Q = np.vstack((Q, Qux))
+
+        print('Q', Q)'''
+
+        # создание матрицы Q
+        Q_size = time_series_frag.shape[0] * 3
+        Q = np.zeros((Q_size, Q_size))
+        print('Q size', Q.size)
+        # заполнение матрицы
+        for i in range(time_series_frag.shape[0]):
+            row_start = i * 3
+            sde = sigma[0][i]
+            sdn = sigma[1][i]
+            sdu = sigma[2][i]
+            sdne = covariances[0][i]
+            sdun = covariances[1][i]
+            sdeu = covariances[2][i]
+
+            Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
+                [sdn, sdne, sdeu],
+                [sdne, sde, sdun],
+                [sdeu, sdun, sdu]
+            ])
+
+        print("Q MATRIX\n", Q)
 
         # решаем СЛАУ
-        N = A.transpose().dot(np.linalg.inv(P)).dot(A)
-        X = np.linalg.inv(N).dot(A.transpose().dot(np.linalg.inv(P)).dot(L))  # вектор параметров кинематической модели
+        N = A.transpose().dot(np.linalg.inv(Q)).dot(A)
+        X = np.linalg.inv(N).dot(A.transpose().dot(np.linalg.inv(Q)).dot(L))  # вектор параметров кинематической модели
         x_LS = np.array([X[0] * t[-1] + X[3], X[1] * t[-1] + X[4], X[2] * t[-1] + X[5]])
 
         x_LS_first = X[0] + X[1] * t[0]
@@ -383,10 +423,10 @@ class Tests:
         V = A.dot(X) - L
 
         # СКП единицы веса
-        mu = np.sqrt(np.sum(V.transpose().dot(np.linalg.inv(P)).dot(V)) / (V.shape[0] - 6))
+        mu = np.sqrt(np.sum(V.transpose().dot(np.linalg.inv(Q)).dot(V)) / (V.shape[0] - 6))
         Qx = np.linalg.inv(N) * mu ** 2
-        С = np.array([[t[-1], 0, 0, 1, 0, 0], [0, t[-1], 0, 0, 1, 0], [0, 0, t[-1], 0, 0, 1]])
-        Qv = С.dot(Qx).dot(С.transpose())
+        C = np.array([[t[-1], 0, 0, 1, 0, 0], [0, t[-1], 0, 0, 1, 0], [0, 0, t[-1], 0, 0, 1]])
+        Qv = C.dot(Qx).dot(C.transpose())
 
         print('QV:', Qv, '\n')
 
@@ -434,17 +474,18 @@ class Tests:
             'y_') else f'sdue_{station}' for col in coord_cols]
         print('COVARIANCE COLUMNS:\n', covariance_cols, '\n')
 
-        x_LS_first, _, Qx, mu_first = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
-                                                                        sigma=fragment[sigma_cols],
-                                                                        sigma_0=sigma_0)
+        x_LS_first, _, Qv, mu_first, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                   sigma=fragment[sigma_cols],
+                                                                   covariances=fragment[covariance_cols],
+                                                                   sigma_0=sigma_0)
         initial_values_X.append(x_LS_first)
         initial_values_Qv.append(Qx)
         initial_values_mu.append(mu_first)
 
-        X_WLS.append(initial_values_X)
-        Qv_WLS.append(initial_values_Qv)
-        wls_times.append(start_time)
-        mu_list.append(initial_values_mu)
+        '''X_WLS.append(x_LS_first)
+        Qv_WLS.append(Qx)
+        mu_list.append(mu_first)
+        wls_times.append(start_time)'''
 
         i = 0
 
@@ -453,27 +494,22 @@ class Tests:
             # извлечение фрагмента
             fragment = time_series_df[(time_series_df.index >= start_time) & (time_series_df.index < end_time)]
 
-            x_LS_values = []
-            Qx_values = []
-            mu_values = []
-
             # Apply the least squares code to the fragment
-            x_LS_first, x_LS, Qx, mu = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
-                                                                        sigma=fragment[sigma_cols].values,
-                                                                        sigma_0=sigma_0)
-            x_LS_values.append(x_LS)
-            Qx_values.append(Qx)
-            mu_values.append(mu)
+            x_LS_first, x_LS, Qv, mu, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                   sigma=fragment[sigma_cols],
+                                                                   covariances=fragment[covariance_cols],
+                                                                   sigma_0=sigma_0)
 
-            X_WLS.append(x_LS_values)
-            Qv_WLS.append(Qx_values)
-            mu_list.append(mu_values)
+            X_WLS.append(x_LS)
+            Qv_WLS.append(Qv)
+            mu_list.append(mu)
 
             # Двигаемся к следующему фрагменту
             start_time = end_time
             end_time = start_time + pd.Timedelta(window_size)
             i += 1
-
+        print('X WLS VALUES')
+        print(X_WLS)
         # конвертация списков в формат numpy
         X_WLS, Qv_WLS, mu_list = np.array(X_WLS), np.array(Qv_WLS), np.array(mu_list)
 
@@ -487,6 +523,8 @@ class Tests:
         wls_df['Date'], Qv_df['Date'], mu_df['Date'] = pd.to_datetime(wls_times), pd.to_datetime(wls_times), pd.to_datetime(wls_times)
 
         # добавляем колонки с данными
+        print("Qv_df shape:", Qv_df.shape)
+        print("Qv_WLS shape:", Qv_WLS.shape)
         wls_df.iloc[:, 1:] = X_WLS
         Qv_df.iloc[:, 1:] = Qv_WLS
         mu_df.iloc[:, 1:] = mu_list

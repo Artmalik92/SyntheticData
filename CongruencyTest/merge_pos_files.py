@@ -149,7 +149,7 @@ merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK
                        directory='Artem_kinematic_all/2024-08-30',
                        resample_interval=None)
 
-merged_data.to_csv('Data/ver-1-2-0-2024-08-30.csv', sep=';', index=False)
+merged_data.to_csv('Data/with-covariances-2024-08-30.csv', sep=';', index=False)
 
 print('Done')
 
