@@ -400,15 +400,14 @@ class Tests:
             sde = sigma[0][i]
             sdn = sigma[1][i]
             sdu = sigma[2][i]
-            sdne = covariances[0][i]
-            sdun = covariances[1][i]
-            sdeu = covariances[2][i]
+            sden = covariances[0][i]
+            sdnu = covariances[1][i]
+            sdue = covariances[2][i]
 
             Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
-                [sdn, sdne, sdeu],
-                [sdne, sde, sdun],
-                [sdeu, sdun, sdu]
-            ])
+                [sdn, sden, sdue],
+                [sden, sde, sdnu],
+                [sdue, sdnu, sdu]])
 
         print("Q MATRIX\n", Q)
 
@@ -508,10 +507,16 @@ class Tests:
             start_time = end_time
             end_time = start_time + pd.Timedelta(window_size)
             i += 1
-        print('X WLS VALUES')
-        print(X_WLS)
+
         # конвертация списков в формат numpy
         X_WLS, Qv_WLS, mu_list = np.array(X_WLS), np.array(Qv_WLS), np.array(mu_list)
+
+        print('X WLS VALUES')
+        print(X_WLS)
+        print('Qv_WLS VALUES')
+        print(Qv_WLS)
+        print('mu_list VALUES')
+        print(mu_list)
 
         time_series_df.reset_index(inplace=True)
 
@@ -526,16 +531,16 @@ class Tests:
         print("Qv_df shape:", Qv_df.shape)
         print("Qv_WLS shape:", Qv_WLS.shape)
         wls_df.iloc[:, 1:] = X_WLS
-        Qv_df.iloc[:, 1:] = Qv_WLS
-        mu_df.iloc[:, 1:] = mu_list
+        #Qv_df.iloc[:, 1:] = Qv_WLS
+        #mu_df.iloc[:, 1:] = mu_list
 
         # вычисляем статистику теста (данный фрагмент перенесен в _perform_chi2_test, будет удален)
         test_statistic = np.zeros((X_WLS.shape[0] - 1))
-        for l in range(X_WLS.shape[0] - 1):
+        '''for l in range(X_WLS.shape[0] - 1):
             Qv = Qv_WLS[l] + Qv_WLS[l + 1]
             d = X_WLS[l] - X_WLS[l + 1]
             Qdd = np.diag(Qv)
-            test_statistic[l] = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
+            test_statistic[l] = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)'''
 
         return X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_df
 
@@ -804,7 +809,9 @@ def main() -> None:
         'log_contents': log_contents}
 
     # Создаем графики в HTML отчете для каждой станции
-    for station, offsets in station_offsets.items():
+
+    # for station, offsets in station_offsets.items():
+    for station in stations:
         station_df_wls = wls[
             [col for col in wls.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
         station_df_raw = raw[
@@ -856,11 +863,11 @@ def main() -> None:
                                  line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
                       row=3, col=1)
 
-        # подсвечиваем смещения на графике
+        '''# подсвечиваем смещения на графике
         for start_date, end_date in offsets:
             fig.add_vrect(x0=start_date, x1=end_date,
                           fillcolor='red', opacity=0.5,
-                          layer='below', line_width=0)
+                          layer='below', line_width=0)'''
 
         for i in range(3):
             fig.update_xaxes(showgrid=False, row=i + 1, col=1)
