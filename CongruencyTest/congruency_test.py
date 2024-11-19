@@ -139,6 +139,7 @@ class Tests:
         Qv_sum = Qv_0.iloc[0, 1:] + Qv_i.iloc[0, 1:]
         Qv_sum = np.array(Qv_sum.tolist())
 
+        # сомнительно
         sigma_0_two_dates = sigma_0[(sigma_0['Date'] >= start_date) & (sigma_0['Date'] <= end_date)]
         sigma_0_mean = sigma_0_two_dates.iloc[:, 1:].mean(axis=0)
         sigma_0 = sigma_0_mean.item()
@@ -227,6 +228,26 @@ class Tests:
 
         Qdd = np.diag(Qv)
         # Qdd = np.eye(d.shape[0])
+
+        # создание матрицы Q
+        Q_size = d.shape[0]
+        Qdd = np.zeros((Q_size, Q_size))
+
+        # заполнение матрицы
+        for i in range(Qdd.shape[0]):
+            row_start = i * 3
+            sde = sigma[0][i]
+            sdn = sigma[1][i]
+            sdu = sigma[2][i]
+            sden = covariances[0][i]
+            sdnu = covariances[1][i]
+            sdue = covariances[2][i]
+
+            Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
+                [sdn, sden, sdue],
+                [sden, sde, sdnu],
+                [sdue, sdnu, sdu]])
+
         K = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
         test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
 
@@ -378,9 +399,6 @@ class Tests:
                 Aux = np.hstack((np.identity(3) * ti, np.identity(3)))
                 A = np.vstack((A, Aux))
 
-        print('NP LINALG COND A:', np.linalg.cond(A), '\n')
-        print('МАТРИЦА A:\n', A, '\n')
-
         '''for i in range(1):
             if i==0:
                 Q = np.hstack((np.identity(3)*i, np.identity(3), np.identity(3)))
@@ -408,8 +426,6 @@ class Tests:
                 [sdn, sden, sdue],
                 [sden, sde, sdnu],
                 [sdue, sdnu, sdu]])
-
-        print("Q MATRIX\n", Q)
 
         # решаем СЛАУ
         N = A.transpose().dot(np.linalg.inv(Q)).dot(A)
@@ -511,13 +527,6 @@ class Tests:
         # конвертация списков в формат numpy
         X_WLS, Qv_WLS, mu_list = np.array(X_WLS), np.array(Qv_WLS), np.array(mu_list)
 
-        print('X WLS VALUES')
-        print(X_WLS)
-        print('Qv_WLS VALUES')
-        print(Qv_WLS)
-        print('mu_list VALUES')
-        print(mu_list)
-
         time_series_df.reset_index(inplace=True)
 
         wls_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
@@ -528,11 +537,18 @@ class Tests:
         wls_df['Date'], Qv_df['Date'], mu_df['Date'] = pd.to_datetime(wls_times), pd.to_datetime(wls_times), pd.to_datetime(wls_times)
 
         # добавляем колонки с данными
-        print("Qv_df shape:", Qv_df.shape)
-        print("Qv_WLS shape:", Qv_WLS.shape)
+        print('X_WLS', X_WLS)
+        print('Qv_WLS', Qv_WLS)
         wls_df.iloc[:, 1:] = X_WLS
         #Qv_df.iloc[:, 1:] = Qv_WLS
-        #mu_df.iloc[:, 1:] = mu_list
+        # Fill the DataFrame
+        for i, matrix in enumerate(Qv_WLS):
+            Qv_df.loc[i] = [wls_times[i], matrix]  # Add the matrix to the DataFrame
+
+        print('Qv_DF VALUES')
+        print(Qv_df)
+
+        mu_df.iloc[:, 1:] = mu_list
 
         # вычисляем статистику теста (данный фрагмент перенесен в _perform_chi2_test, будет удален)
         test_statistic = np.zeros((X_WLS.shape[0] - 1))
