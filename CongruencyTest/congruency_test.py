@@ -1,10 +1,12 @@
 import os
 import numpy as np
 from numpy.linalg import pinv
+from numpy import diag
 import pandas as pd
 from pandas import DataFrame
 from scipy.stats import ttest_1samp, shapiro, chi2
 from scipy.signal import medfilt
+from scipy.linalg import block_diag
 from jinja2 import Template
 from io import StringIO, BytesIO
 import logging
@@ -131,12 +133,34 @@ class Tests:
         """
         raz_list = self._calculate_raz_list(df, start_date, end_date)
 
-        Qv.iloc[:, 1:] = Qv.iloc[:, 1:].apply(pd.to_numeric)
+        # не надо вроде Qv.iloc[:, 1:] = Qv.iloc[:, 1:].apply(pd.to_numeric)
 
         Qv_0 = Qv[Qv['Date'] == start_date]
         Qv_i = Qv[Qv['Date'] == end_date]
 
-        Qv_sum = Qv_0.iloc[0, 1:] + Qv_i.iloc[0, 1:]
+        # Initialize a list to collect matrices from all relevant columns
+        matrices = []
+
+        # Loop through the columns (excluding the 'Date' column)
+        for column in Qv_0.columns:
+            if column != 'Date':
+                # Append the matrix from the current column to the list
+                matrices.extend(Qv_0[column].tolist())
+
+        Qv_0_block = block_diag(*matrices)
+
+        # Initialize a list to collect matrices from all relevant columns
+        matrices = []
+
+        # Loop through the columns (excluding the 'Date' column)
+        for column in Qv_i.columns:
+            if column != 'Date':
+                # Append the matrix from the current column to the list
+                matrices.extend(Qv_i[column].tolist())
+
+        Qv_i_block = block_diag(*matrices)
+
+        Qv_sum = Qv_0_block + Qv_i_block
         Qv_sum = np.array(Qv_sum.tolist())
 
         # сомнительно
@@ -226,29 +250,13 @@ class Tests:
         """
         d = np.array(raz_list)
 
-        Qdd = np.diag(Qv)
-        # Qdd = np.eye(d.shape[0])
+        #Qdd = np.eye(d.shape[0])
+        Qdd = Qv
 
-        # создание матрицы Q
-        Q_size = d.shape[0]
-        Qdd = np.zeros((Q_size, Q_size))
+        K = (d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)) * 10000
+        print('sigma', sigma_0)
+        print('K', K)
 
-        # заполнение матрицы
-        for i in range(Qdd.shape[0]):
-            row_start = i * 3
-            sde = sigma[0][i]
-            sdn = sigma[1][i]
-            sdu = sigma[2][i]
-            sden = covariances[0][i]
-            sdnu = covariances[1][i]
-            sdue = covariances[2][i]
-
-            Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
-                [sdn, sden, sdue],
-                [sden, sde, sdnu],
-                [sdue, sdnu, sdu]])
-
-        K = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
         test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
 
         if K > test_value:
@@ -305,7 +313,6 @@ class Tests:
                     # Create a new DataFrame with the 'Date' column and the mean values
                     mu_mean_df = non_station_sigma[['Date']].copy()
                     mu_mean_df['mu_mean'] = mean_values
-
 
                     ttest_rejected, chi2_rejected = self.congruency_test(df=non_station_df,
                                                                          calculation="specific_date",
@@ -369,9 +376,6 @@ class Tests:
         covariances = pd.DataFrame(covariances)
         covariances.reset_index(drop=True, inplace=True)
         covariances.columns = [0, 1, 2]
-        print('TIME SERIES FRAG', time_series_frag, '\n')
-        print('СКП (SIGMA) FRAG', sigma, '\n')
-        print('COVARIANCES:', covariances, '\n')
 
         # маска для NaN значений
         mask = ~np.isnan(time_series_frag)
@@ -388,8 +392,6 @@ class Tests:
                 L[3 * i + 1] = time_series_frag[1][i]
                 L[3 * i + 2] = time_series_frag[2][i]
 
-        print('МАССИВ L', L, '\n')
-
         # цикл формирования матрицы коэффициентов
         for m in range(time_series_frag.shape[0]):
             ti = t[m]
@@ -399,20 +401,11 @@ class Tests:
                 Aux = np.hstack((np.identity(3) * ti, np.identity(3)))
                 A = np.vstack((A, Aux))
 
-        '''for i in range(1):
-            if i==0:
-                Q = np.hstack((np.identity(3)*i, np.identity(3), np.identity(3)))
-            else:
-                Qux = np.hstack((np.identity(3)*i, np.identity(3), np.identity(3)))
-                Q = np.vstack((Q, Qux))
-
-        print('Q', Q)'''
-
         # создание матрицы Q
         Q_size = time_series_frag.shape[0] * 3
         Q = np.zeros((Q_size, Q_size))
-        print('Q size', Q.size)
-        # заполнение матрицы
+
+        '''# заполнение матрицы
         for i in range(time_series_frag.shape[0]):
             row_start = i * 3
             sde = sigma[0][i]
@@ -425,11 +418,22 @@ class Tests:
             Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
                 [sdn, sden, sdue],
                 [sden, sde, sdnu],
-                [sdue, sdnu, sdu]])
+                [sdue, sdnu, sdu]])'''
+
+        # заполнение матрицы
+        for i in range(time_series_frag.shape[0]):
+            row_start = i * 3
+
+            Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1]])
 
         # решаем СЛАУ
         N = A.transpose().dot(np.linalg.inv(Q)).dot(A)
+
         X = np.linalg.inv(N).dot(A.transpose().dot(np.linalg.inv(Q)).dot(L))  # вектор параметров кинематической модели
+
         x_LS = np.array([X[0] * t[-1] + X[3], X[1] * t[-1] + X[4], X[2] * t[-1] + X[5]])
 
         x_LS_first = X[0] + X[1] * t[0]
@@ -442,8 +446,7 @@ class Tests:
         Qx = np.linalg.inv(N) * mu ** 2
         C = np.array([[t[-1], 0, 0, 1, 0, 0], [0, t[-1], 0, 0, 1, 0], [0, 0, t[-1], 0, 0, 1]])
         Qv = C.dot(Qx).dot(C.transpose())
-
-        print('QV:', Qv, '\n')
+        print('Qv', Qv)
 
         return x_LS_first, x_LS, Qv, mu, Qx
 
@@ -481,13 +484,10 @@ class Tests:
 
         coord_cols = [col for col in fragment.columns if
                       col.startswith('x_') or col.startswith('y_') or col.startswith('z_')]
-        print('coord_cols:\n', coord_cols, '\n')
         sigma_cols = [f'sde_{station}' if col.startswith('x_') else f'sdn_{station}' if col.startswith(
             'y_') else f'sdu_{station}' for col in coord_cols]
-        print('sigma_cols:\n', sigma_cols, '\n')
         covariance_cols = [f'sden_{station}' if col.startswith('x_') else f'sdnu_{station}' if col.startswith(
             'y_') else f'sdue_{station}' for col in coord_cols]
-        print('COVARIANCE COLUMNS:\n', covariance_cols, '\n')
 
         x_LS_first, _, Qv, mu_first, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
                                                                    sigma=fragment[sigma_cols],
@@ -525,30 +525,20 @@ class Tests:
             i += 1
 
         # конвертация списков в формат numpy
-        X_WLS, Qv_WLS, mu_list = np.array(X_WLS), np.array(Qv_WLS), np.array(mu_list)
+        X_WLS, mu_list = np.array(X_WLS), np.array(mu_list)
 
         time_series_df.reset_index(inplace=True)
 
         wls_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
-        Qv_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
-        mu_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
+        # не надо Qv_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
+        Qv_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'Qv_{station}': Qv_WLS})
+        mu_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'MU_{station}': mu_list})
 
         # добавляем колонку с датами в датафреймы
-        wls_df['Date'], Qv_df['Date'], mu_df['Date'] = pd.to_datetime(wls_times), pd.to_datetime(wls_times), pd.to_datetime(wls_times)
+        wls_df['Date'] = pd.to_datetime(wls_times)
 
-        # добавляем колонки с данными
-        print('X_WLS', X_WLS)
-        print('Qv_WLS', Qv_WLS)
         wls_df.iloc[:, 1:] = X_WLS
         #Qv_df.iloc[:, 1:] = Qv_WLS
-        # Fill the DataFrame
-        for i, matrix in enumerate(Qv_WLS):
-            Qv_df.loc[i] = [wls_times[i], matrix]  # Add the matrix to the DataFrame
-
-        print('Qv_DF VALUES')
-        print(Qv_df)
-
-        mu_df.iloc[:, 1:] = mu_list
 
         # вычисляем статистику теста (данный фрагмент перенесен в _perform_chi2_test, будет удален)
         test_statistic = np.zeros((X_WLS.shape[0] - 1))
@@ -773,7 +763,8 @@ def main() -> None:
     window_size = '1min'
 
     # обработка координат при помощи МНК
-    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.005)
+
+    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.05) #0.02
 
     # перевод дат в корректный формат
     wls['Date'] = wls['Date'].dt.to_pydatetime()
@@ -827,7 +818,7 @@ def main() -> None:
     # Создаем графики в HTML отчете для каждой станции
 
     # for station, offsets in station_offsets.items():
-    for station in stations:
+    for station, offsets in station_offsets.items():
         station_df_wls = wls[
             [col for col in wls.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
         station_df_raw = raw[
@@ -879,11 +870,11 @@ def main() -> None:
                                  line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
                       row=3, col=1)
 
-        '''# подсвечиваем смещения на графике
+        # подсвечиваем смещения на графике
         for start_date, end_date in offsets:
             fig.add_vrect(x0=start_date, x1=end_date,
                           fillcolor='red', opacity=0.5,
-                          layer='below', line_width=0)'''
+                          layer='below', line_width=0)
 
         for i in range(3):
             fig.update_xaxes(showgrid=False, row=i + 1, col=1)
