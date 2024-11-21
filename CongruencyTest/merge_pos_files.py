@@ -146,10 +146,10 @@ def makefile(directory: str,
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "NSK1", "NVS2", "BUZZ"],
                        zero_epoch_coords=None,
                        dropna=False,
-                       directory='Artem_kinematic_all/2024-08-30',
+                       directory='posfiles_nsk1_nvs2_static_ostalnie_kinematic/2024-08-30',
                        resample_interval=None)
 
-merged_data.to_csv('Data/with-covariances-2024-08-30.csv', sep=';', index=False)
+merged_data.to_csv('Data/input_files/nsk1-nvs2-static-2024-08-30.csv', sep=';', index=False)
 
 print('Done')
 

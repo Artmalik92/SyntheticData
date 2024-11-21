@@ -49,11 +49,13 @@ class Tests:
     def congruency_test(self,
                         df: DataFrame,
                         Qv: DataFrame,
+                        Qdd_status,
+                        m_coef,
                         calculation: str = "all_dates",
                         start_date: str = None,
                         end_date: str = None,
                         threshold: float = 0.05,
-                        sigma_0 = 0.005) -> tuple:
+                        sigma_0=0.005) -> tuple:
         """
         Performs a congruence test on the input DataFrame.
 
@@ -73,10 +75,11 @@ class Tests:
         chi2_rejected_dates = []
 
         if calculation == "all_dates":
-            self._run_all_dates(df, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv)
+            self._run_all_dates(df, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv,
+                                Qdd_status=Qdd_status, m_coef=m_coef)
         elif calculation == "specific_date":
             self._run_specific_date(df, start_date, end_date, threshold, sigma_0, ttest_rejected_dates,
-                                    chi2_rejected_dates, Qv=Qv)
+                                    chi2_rejected_dates, Qv=Qv, Qdd_status=Qdd_status, m_coef=m_coef)
 
         return ttest_rejected_dates, chi2_rejected_dates
 
@@ -86,7 +89,7 @@ class Tests:
                        sigma_0,
                        ttest_rejected_dates: list,
                        chi2_rejected_dates: list,
-                       Qv: DataFrame) -> None:
+                       Qv: DataFrame, Qdd_status, m_coef) -> None:
         """
         Runs the congruence test for all dates in the DataFrame.
 
@@ -107,7 +110,8 @@ class Tests:
             logger.info(f"Calculating for dates: {start_date} and {end_date}")
             # Вызов функции congruency_test для каждой пары дат
             self._run_specific_date(df, start_date, end_date, threshold,
-                                    sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv)
+                                    sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv,
+                                    Qdd_status=Qdd_status, m_coef=m_coef)
 
     def _run_specific_date(self,
                            df: DataFrame,
@@ -117,7 +121,7 @@ class Tests:
                            sigma_0,
                            ttest_rejected_dates: list,
                            chi2_rejected_dates: list,
-                           Qv: DataFrame) -> None:
+                           Qv: DataFrame, Qdd_status, m_coef) -> None:
         """
         Runs the congruence test for a specific date range.
 
@@ -170,7 +174,8 @@ class Tests:
 
         logger.info('Shapiro: %s', shapiro(raz_list))
 
-        chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum)
+        chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum,
+                                                             Qdd_status=Qdd_status, m_coef=m_coef)
         if chi2_result:
             chi2_rejected_dates.append((start_date, end_date))
             logger.info("Chi-2: " + f"<span style='color:red'>Null hypothesis rejected, "
@@ -235,7 +240,9 @@ class Tests:
                            raz_list: list,
                            sigma_0,
                            threshold: float,
-                           Qv: np.ndarray) -> tuple:
+                           Qv: np.ndarray,
+                           Qdd_status,
+                           m_coef) -> tuple:
         """
         Performs a Chi2 test on the given list of differences.
 
@@ -250,12 +257,14 @@ class Tests:
         """
         d = np.array(raz_list)
 
-        #Qdd = np.eye(d.shape[0])
-        Qdd = Qv
+        if Qdd_status == '1':
+            Qdd = np.eye(d.shape[0])
+        elif Qdd_status == '0':
+            Qdd = Qv
 
-        K = (d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)) * 10000
-        print('sigma', sigma_0)
-        print('K', K)
+        K = (d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)) * m_coef
+        #print('sigma', sigma_0)
+        #print('K', K)
 
         test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
 
@@ -267,6 +276,8 @@ class Tests:
     def find_offset_points(self,
                            df: DataFrame,
                            sigma_0,
+                           m_coef,
+                           Qdd_status,
                            Qv: DataFrame,
                            max_drop: int = 1) -> list:
         """
@@ -291,7 +302,8 @@ class Tests:
         mu_mean_df['mu_mean'] = mean_values
 
         ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=df,
-                                                                         calculation="all_dates", sigma_0=mu_mean_df, Qv=Qv)
+                                                                         calculation="all_dates", sigma_0=mu_mean_df, Qv=Qv,
+                                                                         Qdd_status=Qdd_status, m_coef=m_coef)
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
 
         logger.info('<h2>Finding the offset points:</h2>')
@@ -317,7 +329,8 @@ class Tests:
                     ttest_rejected, chi2_rejected = self.congruency_test(df=non_station_df,
                                                                          calculation="specific_date",
                                                                          start_date=start_date, end_date=end_date,
-                                                                         sigma_0=mu_mean_df, Qv=non_station_qv)
+                                                                         sigma_0=mu_mean_df, Qv=non_station_qv,
+                                                                         Qdd_status=Qdd_status, m_coef=m_coef)
                     if not (ttest_rejected or chi2_rejected):
                         station_cols = [col for col in date_range_df.columns if
                                         any(station in col for station in station_combination)]
@@ -353,7 +366,8 @@ class Tests:
                                 time_series_frag: np.ndarray,
                                 sigma: np.ndarray,
                                 sigma_0,
-                                covariances) -> tuple:
+                                covariances,
+                                Q_status) -> tuple:
         """
         A method that is used in geometric_chi_test_statictics to perform geometric chi test.
 
@@ -405,29 +419,30 @@ class Tests:
         Q_size = time_series_frag.shape[0] * 3
         Q = np.zeros((Q_size, Q_size))
 
-        '''# заполнение матрицы
-        for i in range(time_series_frag.shape[0]):
-            row_start = i * 3
-            sde = sigma[0][i]
-            sdn = sigma[1][i]
-            sdu = sigma[2][i]
-            sden = covariances[0][i]
-            sdnu = covariances[1][i]
-            sdue = covariances[2][i]
+        if Q_status == '0':
+            # заполнение матрицы
+            for i in range(time_series_frag.shape[0]):
+                row_start = i * 3
+                sde = sigma[0][i]
+                sdn = sigma[1][i]
+                sdu = sigma[2][i]
+                sden = covariances[0][i]
+                sdnu = covariances[1][i]
+                sdue = covariances[2][i]
 
-            Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
-                [sdn, sden, sdue],
-                [sden, sde, sdnu],
-                [sdue, sdnu, sdu]])'''
+                Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
+                    [sdn, sden, sdue],
+                    [sden, sde, sdnu],
+                    [sdue, sdnu, sdu]])
+        elif Q_status == '1':
+            # заполнение матрицы
+            for i in range(time_series_frag.shape[0]):
+                row_start = i * 3
 
-        # заполнение матрицы
-        for i in range(time_series_frag.shape[0]):
-            row_start = i * 3
-
-            Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
-                [1, 0, 0],
-                [0, 1, 0],
-                [0, 0, 1]])
+                Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1]])
 
         # решаем СЛАУ
         N = A.transpose().dot(np.linalg.inv(Q)).dot(A)
@@ -446,14 +461,14 @@ class Tests:
         Qx = np.linalg.inv(N) * mu ** 2
         C = np.array([[t[-1], 0, 0, 1, 0, 0], [0, t[-1], 0, 0, 1, 0], [0, 0, t[-1], 0, 0, 1]])
         Qv = C.dot(Qx).dot(C.transpose())
-        print('Qv', Qv)
 
         return x_LS_first, x_LS, Qv, mu, Qx
 
     def geometric_chi_test_statictics(self, station,
                                       time_series_df: DataFrame,
                                       window_size: str,
-                                      sigma_0) -> tuple:
+                                      sigma_0,
+                                      Q_status) -> tuple:
         """
         Performs a geometric Chi test on the given time series DataFrame.
 
@@ -492,7 +507,7 @@ class Tests:
         x_LS_first, _, Qv, mu_first, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
                                                                    sigma=fragment[sigma_cols],
                                                                    covariances=fragment[covariance_cols],
-                                                                   sigma_0=sigma_0)
+                                                                   sigma_0=sigma_0, Q_status=Q_status)
         initial_values_X.append(x_LS_first)
         initial_values_Qv.append(Qx)
         initial_values_mu.append(mu_first)
@@ -513,7 +528,7 @@ class Tests:
             x_LS_first, x_LS, Qv, mu, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
                                                                    sigma=fragment[sigma_cols],
                                                                    covariances=fragment[covariance_cols],
-                                                                   sigma_0=sigma_0)
+                                                                   sigma_0=sigma_0, Q_status=Q_status)
 
             X_WLS.append(x_LS)
             Qv_WLS.append(Qv)
@@ -580,7 +595,7 @@ class Tests:
                 df_filtered[col] = medfilt(df_filtered[col], kernel_size=kernel_size)
         return df_filtered
 
-    def perform_wls(self, df: DataFrame, window_size: str, sigma_0: float) -> tuple:
+    def perform_wls(self, df: DataFrame, window_size: str, sigma_0: float, Q_status) -> tuple:
         """
         Performs a weighted least squares (WLS) on the given DataFrame.
 
@@ -617,7 +632,7 @@ class Tests:
             X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(station=station,
                                                                                               time_series_df=station_df_filtered,
                                                                                               window_size=window_size,
-                                                                                              sigma_0=sigma_0)
+                                                                                              sigma_0=sigma_0, Q_status=Q_status)
             # Append the wls_df to the list
             raw_dfs.append(station_df)
             filtered_dfs.append(station_df_filtered)
@@ -763,8 +778,10 @@ def main() -> None:
     window_size = '1min'
 
     # обработка координат при помощи МНК
-
-    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.05) #0.02
+    Q_status = str(input('Матрица Q (в лин регрессии)\nединичная - 1\nс ковариациями - 0\n'))
+    Qdd_status = str(input('Матрица Qdd (в хи-тесте)\nединичная - 1\nс ковариациями - 0\n'))
+    m_coef = int(input('Масштабный коэффициент: '))
+    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.05, Q_status) #0.02
 
     # перевод дат в корректный формат
     wls['Date'] = wls['Date'].dt.to_pydatetime()
@@ -773,7 +790,7 @@ def main() -> None:
     stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
     # Геометрический тест + поиск станций со смещением
-    offset_points = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2)
+    offset_points = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2, Qdd_status=Qdd_status, m_coef=m_coef)
 
     ''' for window iteration
     offsets, offset_dates = test.window_iteration(df)
@@ -787,7 +804,7 @@ def main() -> None:
     offsets_html_table = offsets_table.to_html(index=False)
 
     # создание папки с результатами
-    result_directory = f'Data/CongruencyTest-{file_name}'
+    result_directory = f'Data/CongruencyTest-Q-status-({Q_status})-Qdd-status-({Qdd_status})-m_coef-({m_coef})-{file_name}'
     os.makedirs(result_directory, exist_ok=True)
     # сохранение смещений в виде csv таблицы
     offsets_table.to_csv(f'{result_directory}/Offsets-table-{file_name}.csv', sep=';', index=False)
