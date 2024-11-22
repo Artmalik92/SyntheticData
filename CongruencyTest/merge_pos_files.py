@@ -7,6 +7,7 @@ import datetime
 
 def resample(data: list,
              station: str,
+             fixed_solution_only: bool,
              resample_interval: str = None):
     """
     Resamples the input data for a given station.
@@ -14,6 +15,7 @@ def resample(data: list,
     Args:
         data (list): Input data to be resampled.
         station (str): Name of the station.
+        fixed_solution_only (bool, optional): Whether to delete floating solutions. Defaults to False.
         resample_interval (str, optional): Resampling interval. Defaults to None.
 
     Returns:
@@ -25,10 +27,11 @@ def resample(data: list,
     Вытаскиваем из .pos файла колонки
     [0] - дата
     [1, 2, 3] - координаты
+    [4] - Q-статус 1: фикс, 2: флоат)
     [6, 7, 8] - значения сигма 
     [9, 10, 11] - парные ковариации 
     '''
-    df = df.iloc[:, [0, 1, 2, 3, 6, 7, 8, 9, 10, 11]]
+    df = df.iloc[:, [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11]]
 
     df[0] = pd.to_datetime(df[0])  # Ставим правильный формат даты
     df[0] = df[0].dt.round('s')  # убираем миллисекунды
@@ -42,6 +45,7 @@ def resample(data: list,
                             1: f'x_{station}',
                             2: f'y_{station}',
                             3: f'z_{station}',
+                            4: f'Q_{station}',
                             6: f'sde_{station}',
                             7: f'sdn_{station}',
                             8: f'sdu_{station}',
@@ -57,9 +61,14 @@ def resample(data: list,
         except Exception as e:
             print(e)
 
+    if fixed_solution_only:  # Check if filtering by Q is enabled
+        df = df[df[f'Q_{station}'] == 1]  # Keep only rows with Q=1
+
+    df = df.drop(columns=[f'Q_{station}'])  # Drop the Q column
+
     # Определение порядка колонок
     df = df.loc[:, ['Date',
-                    f'x_{station}',f'y_{station}', f'z_{station}',
+                    f'x_{station}', f'y_{station}', f'z_{station}',
                     f'sde_{station}', f'sdn_{station}', f'sdu_{station}',
                     f'sden_{station}', f'sdnu_{station}', f'sdue_{station}']]
 
@@ -72,7 +81,8 @@ def makefile(directory: str,
              start_date: str = None,
              end_date: str = None,
              zero_epoch_coords: dict = None,
-             dropna: bool = True):
+             dropna: bool = True,
+             fixed_solution_only: bool = False):
     """
     Creates a merged DataFrame from multiple POS files.
 
@@ -84,6 +94,7 @@ def makefile(directory: str,
         end_date (str, optional): End date. Defaults to None.
         zero_epoch_coords (dict, optional): Zero epoch coordinates. Defaults to None.
         dropna (bool, optional): Whether to drop rows with NaN values. Defaults to True.
+        fixed_solution_only (bool, optional): Whether to delete floating solutions. Defaults to False.
 
     Returns:
         pd.DataFrame: Merged DataFrame.
@@ -107,7 +118,8 @@ def makefile(directory: str,
                 continue
 
             # Ресемплинг файла + изменяем колонки
-            resampled_data = resample(data, station, resample_interval)
+            resampled_data = resample(data=data, fixed_solution_only=fixed_solution_only,
+                                      station=station, resample_interval=resample_interval)
 
             # Фильтрация файла на определенный временной период (опционально)
             if all([start_date is not None, end_date is not None]):
@@ -143,13 +155,14 @@ def makefile(directory: str,
 
 #zero_epoch_coordinates = json.load(open('2024-08-29/first_epoch.json'))
 
-merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "NSK1", "NVS2", "BUZZ"],
+merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"],
                        zero_epoch_coords=None,
                        dropna=False,
                        directory='posfiles_nsk1_nvs2_static_ostalnie_kinematic/2024-08-30',
-                       resample_interval=None)
+                       resample_interval=None,
+                       fixed_solution_only=True)
 
-merged_data.to_csv('Data/input_files/nsk1-nvs2-static-2024-08-30.csv', sep=';', index=False)
+merged_data.to_csv('Data/input_files/snsk-only-fixed-solutions-2024-08-30.csv', sep=';', index=False)
 
 print('Done')
 

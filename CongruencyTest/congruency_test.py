@@ -296,7 +296,6 @@ class Tests:
         offset_points = []
 
         # Calculate the mean value of each row
-        print('sigma_0', sigma_0.head())
         mean_values = sigma_0.drop('Date', axis=1).mean(axis=1)
         # Create a new DataFrame with the 'Date' column and the mean values
         mu_mean_df = sigma_0[['Date']].copy()
@@ -621,10 +620,10 @@ class Tests:
             station_cols = ['Date'] + [col for col in df.columns if station in col]
 
             # извлекаем колонны
-            station_df = df[station_cols]
+            station_df_raw = df[station_cols]
 
             # интерполируем пропуски в данных
-            station_df = self.interpolate_missing_values(station_df)
+            station_df = self.interpolate_missing_values(station_df_raw)
 
             # медианный фильтр
             station_df_filtered = self.filter_data(station_df, kernel_size=11)
@@ -635,7 +634,7 @@ class Tests:
                                                                                               window_size=window_size,
                                                                                               sigma_0=sigma_0, Q_status=Q_status)
             # Append the wls_df to the list
-            raw_dfs.append(station_df)
+            raw_dfs.append(station_df_raw)
             filtered_dfs.append(station_df_filtered)
             wls_dfs.append(wls_df)
             Qv_dfs.append(Qv_df)
@@ -663,6 +662,281 @@ class Tests:
         MU = MU.loc[:, ~MU.columns.duplicated()]
 
         return wls, raw, filtered, Qv, mu_mean_df, MU
+
+    def create_html_report(self, offset_points, wls, raw, filtered, window_size,
+                           file_path, file_name, Q_status, Qdd_status, m_coef):
+        # сохранение результатов в таблицу для HTML отчета
+        offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
+        offsets_html_table = offsets_table.to_html(index=False)
+
+        # Извлечение названий станций из названий колонок
+        stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
+
+        # создание папки с результатами
+        result_directory = f'Data/CongruencyTest-Q-status-({Q_status})-Qdd-status-({Qdd_status})-m_coef-({m_coef})-{file_name}'
+        os.makedirs(result_directory, exist_ok=True)
+
+        # сохранение смещений в виде csv таблицы
+        offsets_table.to_csv(f'{result_directory}/Offsets-table-{file_name}.csv', sep=';', index=False)
+
+        # получение логов
+        string_io_handler.flush()
+        log_contents = string_io_handler.stream.getvalue()
+
+        # группировка смещений по станциям
+        station_offsets = {}
+        for start_date, end_date, station, offset_size in offset_points:
+            if station not in station_offsets:
+                station_offsets[station] = []
+            station_offsets[station].append((start_date, end_date))
+
+        # словарь для создания HTML отчета
+        report_data = {
+            'file_name': file_path,
+            'total_tests': (len(wls['Date']) - 1),
+            'stations_length': len(stations),
+            'stations_names': stations,
+            'window_size': window_size,
+            'offset_points': offsets_html_table,
+            'offset_plots': '',
+            'triangulation_map': '',
+            'log_contents': log_contents}
+
+        # Создаем графики в HTML отчете для каждой станции
+
+        # for station, offsets in station_offsets.items():
+        for station, offsets in station_offsets.items():
+            station_df_wls = wls[
+                [col for col in wls.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+            station_df_raw = raw[
+                [col for col in raw.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+            station_df_filtered = filtered[
+                [col for col in filtered.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+
+            x_values_raw = station_df_raw[f'x_{station}']
+            y_values_raw = station_df_raw[f'y_{station}']
+            z_values_raw = station_df_raw[f'z_{station}']
+
+            x_values_fil = station_df_filtered[f'x_{station}']
+            y_values_fil = station_df_filtered[f'y_{station}']
+            z_values_fil = station_df_filtered[f'z_{station}']
+
+            x_values = station_df_wls[f'x_{station}']
+            y_values = station_df_wls[f'y_{station}']
+            z_values = station_df_wls[f'z_{station}']
+
+            fig = make_subplots(rows=3, cols=1, vertical_spacing=0.02)
+
+            # график сырых координат
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=True), row=1,
+                          col=1)
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=2,
+                          col=1)
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=3,
+                          col=1)
+
+            # график координат с фильтром
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=x_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=True),
+                          row=1, col=1)
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=y_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data',
+                                     showlegend=False),
+                          row=2, col=1)
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=z_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data',
+                                     showlegend=False),
+                          row=3, col=1)
+
+            # график координат с МНК
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=x_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=True),
+                          row=1, col=1)
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=y_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                          row=2, col=1)
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=z_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                          row=3, col=1)
+
+            # подсвечиваем смещения на графике
+            for start_date, end_date in offsets:
+                fig.add_vrect(x0=start_date, x1=end_date,
+                              fillcolor='red', opacity=0.5,
+                              layer='below', line_width=0)
+
+            for i in range(3):
+                fig.update_xaxes(showgrid=False, row=i + 1, col=1)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True, tertiary=True)
+                if i < 2:
+                    fig.update_xaxes(tickvals=[], row=i + 1, col=1)
+                else:
+                    fig.update_xaxes(tickformat='%H:%M:%S', row=i + 1, col=1)
+
+            fig.update_layout(height=600, width=1200,  # корректируем размеры графика
+                              title_text=f'Offsets found in {station} station: ',
+                              margin=dict(l=10, r=10, t=50, b=10))
+
+            # Конвертация графиков в HTML
+            html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
+
+            # добавляем графики в HTML отчет
+            report_data['offset_plots'] += html_img + "<br>"
+
+        # Сохранение отчета в файл
+        self.save_html_report(report_data=report_data,
+                              output_path=f'{result_directory}/CongruencyTest-report-{file_name}' + '.html')
+
+        # удаляем обработчик StringIO
+        logger.removeHandler(string_io_handler)
+
+    def create_html_report_for_tests(self, offset_points, wls, raw, filtered, window_size,
+                           file_path, file_name, Q_status, Qdd_status, m_coef):
+        # сохранение результатов в таблицу для HTML отчета
+        offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
+        offsets_html_table = offsets_table.to_html(index=False)
+
+        # Извлечение названий станций из названий колонок
+        stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
+
+        # создание папки с результатами
+        result_directory = f'Data/q-sorting-fixed-solutions-CongruencyTest-Q-status-({Q_status})-Qdd-status-({Qdd_status})-m_coef-({m_coef})-{file_name}'
+        os.makedirs(result_directory, exist_ok=True)
+
+        # сохранение смещений в виде csv таблицы
+        offsets_table.to_csv(f'{result_directory}/Offsets-table-{file_name}.csv', sep=';', index=False)
+
+        raw.to_csv(f'{result_directory}/Raw-data-{file_name}.csv', sep=';', index=False)
+
+        # получение логов
+        string_io_handler.flush()
+        log_contents = string_io_handler.stream.getvalue()
+
+        ## группировка смещений по станциям
+        station_offsets = {station: [] for station in stations}  # Initialize with all stations
+        for start_date, end_date, station, offset_size in offset_points:
+            if station in station_offsets:
+                station_offsets[station].append((start_date, end_date))
+
+
+        # словарь для создания HTML отчета
+        report_data = {
+            'file_name': file_path,
+            'total_tests': (len(wls['Date']) - 1),
+            'stations_length': len(stations),
+            'stations_names': stations,
+            'window_size': window_size,
+            'offset_points': offsets_html_table,
+            'offset_plots': '',
+            'triangulation_map': '',
+            'log_contents': ''}
+
+        # Создаем графики в HTML отчете для каждой станции
+
+        # for station, offsets in station_offsets.items():
+        for station in stations:
+            offsets = station_offsets[station]  # Get offsets for the current station
+
+            station_df_wls = wls[
+                [col for col in wls.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+            station_df_raw = raw[
+                [col for col in raw.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+            station_df_filtered = filtered[
+                [col for col in filtered.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+
+            x_values_raw = station_df_raw[f'x_{station}']
+            y_values_raw = station_df_raw[f'y_{station}']
+            z_values_raw = station_df_raw[f'z_{station}']
+
+            x_values_fil = station_df_filtered[f'x_{station}']
+            y_values_fil = station_df_filtered[f'y_{station}']
+            z_values_fil = station_df_filtered[f'z_{station}']
+
+            x_values = station_df_wls[f'x_{station}']
+            y_values = station_df_wls[f'y_{station}']
+            z_values = station_df_wls[f'z_{station}']
+
+            fig = make_subplots(rows=3, cols=1, vertical_spacing=0.02)
+
+            # график сырых координат
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=True), row=1,
+                          col=1)
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=2,
+                          col=1)
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=3,
+                          col=1)
+
+            # график координат с фильтром
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=x_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=True),
+                          row=1, col=1)
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=y_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data',
+                                     showlegend=False),
+                          row=2, col=1)
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=z_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data',
+                                     showlegend=False),
+                          row=3, col=1)
+
+            # график координат с МНК
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=x_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=True),
+                          row=1, col=1)
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=y_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                          row=2, col=1)
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=z_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                          row=3, col=1)
+
+            # подсвечиваем смещения на графике
+            for start_date, end_date in offsets:
+                fig.add_vrect(x0=start_date, x1=end_date,
+                              fillcolor='red', opacity=0.5,
+                              layer='below', line_width=0)
+
+            for i in range(3):
+                fig.update_xaxes(showgrid=False, row=i + 1, col=1)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True, tertiary=True)
+                if i < 2:
+                    fig.update_xaxes(tickvals=[], row=i + 1, col=1)
+                else:
+                    fig.update_xaxes(tickformat='%H:%M:%S', row=i + 1, col=1)
+
+            fig.update_layout(height=600, width=1200,  # корректируем размеры графика
+                              title_text=f'Offsets found in {station} station: ',
+                              margin=dict(l=10, r=10, t=50, b=10))
+
+            # Конвертация графиков в HTML
+            html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
+
+            # добавляем графики в HTML отчет
+            report_data['offset_plots'] += html_img + "<br>"
+
+        # Сохранение отчета в файл
+        self.save_html_report(report_data=report_data,
+                              output_path=f'{result_directory}/CongruencyTest-report-{file_name}' + '.html')
+
+        # удаляем обработчик StringIO
+        logger.removeHandler(string_io_handler)
+
 
     def save_html_report(self, report_data: dict, output_path: str) -> str:
         """
@@ -787,9 +1061,6 @@ def main() -> None:
     # перевод дат в корректный формат
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
-    # Извлечение названий станций из названий колонок
-    stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
-
     # Геометрический тест + поиск станций со смещением
     offset_points = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2, Qdd_status=Qdd_status, m_coef=m_coef)
 
@@ -800,125 +1071,10 @@ def main() -> None:
                                             rejected_dates=offset_dates)
     '''
 
-    # сохранение результатов в таблицу для HTML отчета
-    offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
-    offsets_html_table = offsets_table.to_html(index=False)
-
-    # создание папки с результатами
-    result_directory = f'Data/CongruencyTest-Q-status-({Q_status})-Qdd-status-({Qdd_status})-m_coef-({m_coef})-{file_name}'
-    os.makedirs(result_directory, exist_ok=True)
-    # сохранение смещений в виде csv таблицы
-    offsets_table.to_csv(f'{result_directory}/Offsets-table-{file_name}.csv', sep=';', index=False)
-
-    # получение логов
-    string_io_handler.flush()
-    log_contents = string_io_handler.stream.getvalue()
-
-    # группировка смещений по станциям
-    station_offsets = {}
-    for start_date, end_date, station, offset_size in offset_points:
-        if station not in station_offsets:
-            station_offsets[station] = []
-        station_offsets[station].append((start_date, end_date))
-
-    # словарь для создания HTML отчета
-    report_data = {
-        'file_name': file_path,
-        'total_tests': (len(wls['Date'])-1),
-        'stations_length': len(stations),
-        'stations_names': stations,
-        'window_size': window_size,
-        'offset_points': offsets_html_table,
-        'offset_plots': '',
-        'triangulation_map': '',
-        'log_contents': log_contents}
-
-    # Создаем графики в HTML отчете для каждой станции
-
-    # for station, offsets in station_offsets.items():
-    for station, offsets in station_offsets.items():
-        station_df_wls = wls[
-            [col for col in wls.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
-        station_df_raw = raw[
-            [col for col in raw.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
-        station_df_filtered = filtered[
-            [col for col in filtered.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
-
-        x_values_raw = station_df_raw[f'x_{station}']
-        y_values_raw = station_df_raw[f'y_{station}']
-        z_values_raw = station_df_raw[f'z_{station}']
-
-        x_values_fil = station_df_filtered[f'x_{station}']
-        y_values_fil = station_df_filtered[f'y_{station}']
-        z_values_fil = station_df_filtered[f'z_{station}']
-
-        x_values = station_df_wls[f'x_{station}']
-        y_values = station_df_wls[f'y_{station}']
-        z_values = station_df_wls[f'z_{station}']
-
-        fig = make_subplots(rows=3, cols=1, vertical_spacing=0.02)
-
-        # график сырых координат
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values_raw, mode='lines', name='Raw data',
-                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=True), row=1, col=1)
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values_raw, mode='lines', name='Raw data',
-                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=2, col=1)
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values_raw, mode='lines', name='Raw data',
-                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=3, col=1)
-
-        # график координат с фильтром
-        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=x_values_fil, mode='lines', name='Filtered data',
-                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=True),
-                      row=1, col=1)
-        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=y_values_fil, mode='lines', name='Filtered data',
-                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=False),
-                      row=2, col=1)
-        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=z_values_fil, mode='lines', name='Filtered data',
-                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=False),
-                      row=3, col=1)
-
-        # график координат с МНК
-        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=x_values, mode='lines', name='WLS Estimate',
-                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=True),
-                      row=1, col=1)
-        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=y_values, mode='lines', name='WLS Estimate',
-                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
-                      row=2, col=1)
-        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=z_values, mode='lines', name='WLS Estimate',
-                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
-                      row=3, col=1)
-
-        # подсвечиваем смещения на графике
-        for start_date, end_date in offsets:
-            fig.add_vrect(x0=start_date, x1=end_date,
-                          fillcolor='red', opacity=0.5,
-                          layer='below', line_width=0)
-
-        for i in range(3):
-            fig.update_xaxes(showgrid=False, row=i + 1, col=1)
-            fig.update_yaxes(showgrid=False, row=i + 1, col=1)
-            fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True)
-            fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True, tertiary=True)
-            if i < 2:
-                fig.update_xaxes(tickvals=[], row=i + 1, col=1)
-            else:
-                fig.update_xaxes(tickformat='%H:%M:%S', row=i + 1, col=1)
-
-        fig.update_layout(height=600, width=1200,  # корректируем размеры графика
-                          title_text=f'Offsets found in {station} station: ',
-                          margin=dict(l=10, r=10, t=50, b=10))
-
-        # Конвертация графиков в HTML
-        html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
-
-        # добавляем графики в HTML отчет
-        report_data['offset_plots'] += html_img + "<br>"
-
-    # Сохранение отчета в файл
-    test.save_html_report(report_data=report_data, output_path=f'{result_directory}/CongruencyTest-report-{file_name}'+'.html')
-
-    # удаляем обработчик StringIO
-    logger.removeHandler(string_io_handler)
+    # Создание отчета
+    test.create_html_report_for_tests(offset_points=offset_points, wls=wls, raw=raw, filtered=filtered,
+                            window_size=window_size, file_path=file_path, file_name=file_name,
+                            Q_status=Q_status, Qdd_status=Qdd_status, m_coef=m_coef)
 
 
 if __name__ == "__main__":
