@@ -296,6 +296,7 @@ class Tests:
         offset_points = []
 
         # Calculate the mean value of each row
+        print('sigma_0', sigma_0.head())
         mean_values = sigma_0.drop('Date', axis=1).mean(axis=1)
         # Create a new DataFrame with the 'Date' column and the mean values
         mu_mean_df = sigma_0[['Date']].copy()
