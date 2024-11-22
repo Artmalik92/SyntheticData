@@ -158,13 +158,12 @@ def makefile(directory: str,
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"],
                        zero_epoch_coords=None,
                        dropna=False,
-                       directory='posfiles_nsk1_nvs2_static_ostalnie_kinematic/2024-08-30',
+                       directory='Artem_kinematic_all/2024-08-31',
                        resample_interval=None,
                        fixed_solution_only=True)
 
-merged_data.to_csv('Data/input_files/snsk-only-fixed-solutions-2024-08-30.csv', sep=';', index=False)
+merged_data.to_csv('Data/input_files/snsk-only-fixed-solutions-2024-08-31.csv', sep=';', index=False)
 
 print('Done')
-
 
 

@@ -837,7 +837,7 @@ class Tests:
             'offset_points': offsets_html_table,
             'offset_plots': '',
             'triangulation_map': '',
-            'log_contents': ''}
+            'log_contents': log_contents}
 
         # Создаем графики в HTML отчете для каждой станции
 
