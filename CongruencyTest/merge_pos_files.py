@@ -154,15 +154,16 @@ def makefile(directory: str,
 
 
 #zero_epoch_coordinates = json.load(open('2024-08-29/first_epoch.json'))
-
+# "SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "BUZZ"
+# "NSK1", "NOVM", "NSKP", "NSVB", "NVS2"
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"],
                        zero_epoch_coords=None,
                        dropna=False,
-                       directory='Artem_kinematic_all/2024-08-31',
+                       directory='POSFILES_NEW/full_kinematic/2024-08-27',
                        resample_interval=None,
-                       fixed_solution_only=True)
+                       fixed_solution_only=False)
 
-merged_data.to_csv('Data/input_files/snsk-only-fixed-solutions-2024-08-31.csv', sep=';', index=False)
+merged_data.to_csv('Data/input_files/inner_network/Without_BUZZ/inner-network-kinematic-pos-2024-08-27.csv', sep=';', index=False)
 
 print('Done')
 

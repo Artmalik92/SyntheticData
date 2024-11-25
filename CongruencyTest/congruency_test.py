@@ -167,10 +167,15 @@ class Tests:
         Qv_sum = Qv_0_block + Qv_i_block
         Qv_sum = np.array(Qv_sum.tolist())
 
-        # сомнительно
+        ''' это старая версия # сомнительно
         sigma_0_two_dates = sigma_0[(sigma_0['Date'] >= start_date) & (sigma_0['Date'] <= end_date)]
         sigma_0_mean = sigma_0_two_dates.iloc[:, 1:].mean(axis=0)
-        sigma_0 = sigma_0_mean.item()
+        sigma_0 = sigma_0_mean.item()'''
+
+        mu_0 = sigma_0[sigma_0['Date'] == start_date]
+        mu_i = sigma_0[sigma_0['Date'] == end_date]
+        mu_sum = (mu_0['Sum_of_Squares'].reset_index(drop=True) + mu_i['Sum_of_Squares'].reset_index(drop=True).sum())
+        sigma_0 = float(mu_sum.iloc[0])
 
         logger.info('Shapiro: %s', shapiro(raz_list))
 
@@ -255,19 +260,22 @@ class Tests:
         Returns:
             tuple: A tuple containing the result of the Chi2 test, K-value, and test value.
         """
+        # вектор разностей между эпохами
         d = np.array(raz_list)
 
+        # Матрица Qdd единичная или стандартная
         if Qdd_status == '1':
             Qdd = np.eye(d.shape[0])
         elif Qdd_status == '0':
             Qdd = Qv
+        np.savetxt('Qdd.txt', Qdd, fmt='%.6f', delimiter=',')
+        # Вычисление статистики
+        K = (d.transpose().dot(np.linalg.inv(Qdd)).dot(d) / (sigma_0)) * m_coef # сигмы уже возведены в квадрат
+        # Вычисление тестового значения статистики
+        test_value = chi2.ppf(df=((int(d.shape[0])/3)*6), q=threshold)
+        # test_value = chi2.ppf(df=(d.shape[0]-1), q=threshold)
 
-        K = (d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)) * m_coef
-        #print('sigma', sigma_0)
-        #print('K', K)
-
-        test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
-
+        # Проверка гипотезы
         if K > test_value:
             return True, K, test_value
         else:
@@ -295,11 +303,20 @@ class Tests:
         """
         offset_points = []
 
-        # Calculate the mean value of each row
+        # сумма всех значений возведенных в квадрат
+        # sum_of_squares = sigma_0.iloc[:, 2:].apply(lambda row: sum(row ** 2), axis=1)
+        # mu_mean_df = pd.DataFrame({'Date': sigma_0['Date'],'Sum_of_Squares': sum_of_squares})
+
+        sum_of_squares = sigma_0.drop('Date', axis=1).apply(lambda row: sum(row ** 2), axis=1)
+        # создаем датафрейм с ними
+        mu_mean_df = sigma_0[['Date']].copy()
+        mu_mean_df['Sum_of_Squares'] = sum_of_squares
+
+        ''' старая версия
         mean_values = sigma_0.drop('Date', axis=1).mean(axis=1)
         # Create a new DataFrame with the 'Date' column and the mean values
         mu_mean_df = sigma_0[['Date']].copy()
-        mu_mean_df['mu_mean'] = mean_values
+        mu_mean_df['Sum_of_Squares'] = mean_values'''
 
         ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=df,
                                                                          calculation="all_dates", sigma_0=mu_mean_df, Qv=Qv,
@@ -320,11 +337,15 @@ class Tests:
                     non_station_qv = self.drop_station_columns(Qv, station_combination)
                     non_station_sigma = self.drop_station_columns(sigma_0, station_combination)
 
-                    # Calculate the mean value of each row
+                    sum_of_squares = non_station_sigma.drop('Date', axis=1).apply(lambda row: sum(row ** 2), axis=1)
+                    # создаем датафрейм с ними
+                    mu_mean_df = non_station_sigma[['Date']].copy()
+                    mu_mean_df['Sum_of_Squares'] = sum_of_squares
+                    '''# старая версия
                     mean_values = non_station_sigma.drop('Date', axis=1).mean(axis=1)
                     # Create a new DataFrame with the 'Date' column and the mean values
                     mu_mean_df = non_station_sigma[['Date']].copy()
-                    mu_mean_df['mu_mean'] = mean_values
+                    mu_mean_df['Sum_of_Squares'] = mean_values'''
 
                     ttest_rejected, chi2_rejected = self.congruency_test(df=non_station_df,
                                                                          calculation="specific_date",
@@ -379,20 +400,23 @@ class Tests:
         Returns:
             tuple: A tuple containing the x_LS_first, x_LS, Qv, and mu values.
         """
+        # Фрагмент временного ряда с одной станцией
         time_series_frag = pd.DataFrame(time_series_frag)
         time_series_frag.reset_index(drop=True, inplace=True)
         time_series_frag.columns = [0, 1, 2]
 
+        # скп для этой станции
         sigma = pd.DataFrame(sigma)
         sigma.reset_index(drop=True, inplace=True)
         sigma.columns = [0, 1, 2]
 
+        # ковариации для этой станции
         covariances = pd.DataFrame(covariances)
         covariances.reset_index(drop=True, inplace=True)
         covariances.columns = [0, 1, 2]
 
         # маска для NaN значений
-        mask = ~np.isnan(time_series_frag)
+        # mask = ~np.isnan(time_series_frag)
 
         L = np.zeros((time_series_frag.shape[0] * 3))
 
@@ -419,8 +443,8 @@ class Tests:
         Q_size = time_series_frag.shape[0] * 3
         Q = np.zeros((Q_size, Q_size))
 
+        # заполнение матрицы Q
         if Q_status == '0':
-            # заполнение матрицы
             for i in range(time_series_frag.shape[0]):
                 row_start = i * 3
                 sde = sigma[0][i]
@@ -431,19 +455,19 @@ class Tests:
                 sdue = covariances[2][i]
 
                 Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
-                    [sdn, sden, sdue],
-                    [sden, sde, sdnu],
-                    [sdue, sdnu, sdu]])
+                    [sdn**2, sden**2, sdue**2],
+                    [sden**2, sde**2, sdnu**2],
+                    [sdue**2, sdnu**2, sdu**2]])
+        # если матрица единичная
         elif Q_status == '1':
-            # заполнение матрицы
             for i in range(time_series_frag.shape[0]):
                 row_start = i * 3
-
                 Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
                     [1, 0, 0],
                     [0, 1, 0],
                     [0, 0, 1]])
-
+        Q /= 0.0004
+        np.savetxt('Q.txt', Q, fmt='%.6f', delimiter=',')
         # решаем СЛАУ
         N = A.transpose().dot(np.linalg.inv(Q)).dot(A)
 
@@ -547,6 +571,7 @@ class Tests:
         wls_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
         # не надо Qv_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
         Qv_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'Qv_{station}': Qv_WLS})
+        Qv_df.to_csv('Qv_df.csv', sep=';', index=False)
         mu_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'MU_{station}': mu_list})
 
         # добавляем колонку с датами в датафреймы
@@ -808,7 +833,7 @@ class Tests:
         stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
         # создание папки с результатами
-        result_directory = f'Data/q-sorting-fixed-solutions-CongruencyTest-Q-status-({Q_status})-Qdd-status-({Qdd_status})-m_coef-({m_coef})-{file_name}'
+        result_directory = f'Data/test-Q({Q_status})-Qdd({Qdd_status})-m_coef({m_coef})-{file_name}'
         os.makedirs(result_directory, exist_ok=True)
 
         # сохранение смещений в виде csv таблицы
@@ -934,6 +959,7 @@ class Tests:
         self.save_html_report(report_data=report_data,
                               output_path=f'{result_directory}/CongruencyTest-report-{file_name}' + '.html')
 
+        print('File saved in ' + f'{result_directory}/CongruencyTest-report-{file_name}' + '.html')
         # удаляем обработчик StringIO
         logger.removeHandler(string_io_handler)
 
@@ -1055,12 +1081,12 @@ def main() -> None:
     # обработка координат при помощи МНК
     Q_status = str(input('Матрица Q (в лин регрессии)\nединичная - 1\nс ковариациями - 0\n'))
     Qdd_status = str(input('Матрица Qdd (в хи-тесте)\nединичная - 1\nс ковариациями - 0\n'))
-    m_coef = int(input('Масштабный коэффициент: '))
+    m_coef = float(input('Масштабный коэффициент: '))
     wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.05, Q_status) #0.02
 
     # перевод дат в корректный формат
     wls['Date'] = wls['Date'].dt.to_pydatetime()
-
+    MU.to_csv('MU.csv', sep=';', index=False)
     # Геометрический тест + поиск станций со смещением
     offset_points = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2, Qdd_status=Qdd_status, m_coef=m_coef)
 
