@@ -30,8 +30,9 @@ def resample(data: list,
     [4] - Q-статус 1: фикс, 2: флоат)
     [6, 7, 8] - значения сигма 
     [9, 10, 11] - парные ковариации 
+    [14] - sigma_0 - от Даниила вычисленные
     '''
-    df = df.iloc[:, [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11]]
+    df = df.iloc[:, [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14]]
 
     df[0] = pd.to_datetime(df[0])  # Ставим правильный формат даты
     df[0] = df[0].dt.round('s')  # убираем миллисекунды
@@ -51,7 +52,8 @@ def resample(data: list,
                             8: f'sdu_{station}',
                             9: f'sden_{station}',
                             10: f'sdnu_{station}',
-                            11: f'sdue_{station}'})
+                            11: f'sdue_{station}',
+                            14: f'sigma0_{station}'})
 
     # Ресемплинг файла с определенным интервалом даты (опционально)
     if resample_interval is not None:
@@ -70,7 +72,8 @@ def resample(data: list,
     df = df.loc[:, ['Date',
                     f'x_{station}', f'y_{station}', f'z_{station}',
                     f'sde_{station}', f'sdn_{station}', f'sdu_{station}',
-                    f'sden_{station}', f'sdnu_{station}', f'sdue_{station}']]
+                    f'sden_{station}', f'sdnu_{station}', f'sdue_{station}',
+                    f'sigma0_{station}']]
 
     return df
 
@@ -159,11 +162,11 @@ def makefile(directory: str,
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "BUZZ"],
                        zero_epoch_coords=None,
                        dropna=False,
-                       directory='2024-08-29-new',
+                       directory='2024-08-29-with-sigma-0',
                        resample_interval=None,
                        fixed_solution_only=False)
 
-merged_data.to_csv('Data/input_files/new-2024-08-09.csv', sep=';', index=False)
+merged_data.to_csv('Data/input_files/with-sigma0-2024-08-09.csv', sep=';', index=False)
 
 print('Done')
 

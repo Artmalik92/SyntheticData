@@ -274,6 +274,11 @@ class Tests:
         # Вычисление статистики
         # K = (d.transpose().dot(np.linalg.inv(Qdd)).dot(d) / (sigma_0)) * m_coef # сигмы уже возведены в квадрат
         K = (d.dot(np.linalg.inv(Qdd)).dot(d.transpose()) / sigma_0) * m_coef
+        print('_____________')
+        print(Qdd)
+        print('d', d)
+        print('K', K)
+        print('mu', sigma_0)
         # Вычисление тестового значения статистики
         # test_value = chi2.ppf(df=((int(d.shape[0])/3)*6), q=threshold)
         test_value = chi2.ppf(df=((d.shape[0]) / 3) * 6, q=0.95)
@@ -459,12 +464,12 @@ class Tests:
                 sdue = covariances[2][i]
 
                 Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
-                    # [sdn**2, sden**2, sdue**2],
-                    # [sden**2, sde**2, sdnu**2],
-                    # [sdue**2, sdnu**2, sdu**2]])
-                    [sdn ** 2, 0     , 0      ],
-                    [0       , sde**2, 0      ],
-                    [0       ,       0, sdu**2]])
+                    [sde**2, sden**2, sdue**2],
+                    [sden**2, sdn**2, sdnu**2],
+                    [sdue**2, sdnu**2, sdu**2]])
+                    # [sde ** 2, 0     , 0      ],
+                    # [0       , sdn**2, 0      ],
+                    # [0       ,       0, sdu**2]])
         # если матрица единичная
         elif Q_status == '1':
             for i in range(time_series_frag.shape[0]):
@@ -474,7 +479,7 @@ class Tests:
                     [0, 1, 0],
                     [0, 0, 1]])
 
-        P = Q/(0.005**2)
+        P = Q/(0.02**2)
         np.savetxt('Q.txt', Q, fmt='%.6f', delimiter=',')
         # решаем СЛАУ
         # [print(i) for i in P]
@@ -500,6 +505,73 @@ class Tests:
         Qv = C.dot(Qx).dot(C.transpose())
 
         return x_LS_first, x_LS, Qv, mu, Qx
+
+
+    def chi_test_calc_without_wls(self,
+                                time_series_frag: np.ndarray,
+                                sigma: np.ndarray,
+                                sigma_0,
+                                covariances,
+                                  mu,
+                                Q_status) -> tuple:
+        """
+        A method that is used in geometric_chi_test_statictics to perform geometric chi test.
+
+        Args:
+            time_series_frag (np.ndarray): The time series fragment.
+            sigma (np.ndarray): The sigma values.
+            sigma_0 (float): The sigma_0 value.
+
+        Returns:
+            tuple: A tuple containing the x_LS_first, x_LS, Qv, and mu values.
+        """
+        # Фрагмент временного ряда с одной станцией
+        time_series_frag = pd.DataFrame(time_series_frag)
+        time_series_frag.reset_index(drop=True, inplace=True)
+        time_series_frag.columns = [0, 1, 2]
+
+        # скп для этой станции
+        sigma = pd.DataFrame(sigma)
+        sigma.reset_index(drop=True, inplace=True)
+        sigma.columns = [0, 1, 2]
+
+        # ковариации для этой станции
+        covariances = pd.DataFrame(covariances)
+        covariances.reset_index(drop=True, inplace=True)
+        covariances.columns = [0, 1, 2]
+
+        # скп единицы веса для этой станции
+        mu_values = pd.DataFrame(mu)
+        mu_values.reset_index(drop=True, inplace=True)
+        mu_values.columns = [0]
+
+        # заполнение матрицы Q
+        if Q_status == '0':
+            sde = sigma[0][0]
+            sdn = sigma[1][0]
+            sdu = sigma[2][0]
+            sden = covariances[0][0]
+            sdnu = covariances[1][0]
+            sdue = covariances[2][0]
+
+            Q = np.array([
+                [sde**2, sden**2, sdue**2],
+                [sden**2, sdn**2, sdnu**2],
+                [sdue**2, sdnu**2, sdu**2]])
+                # [sdn ** 2, 0     , 0      ],
+                # [0       , sde**2, 0      ],
+                # [0       ,       0, sdu**2]])
+        # если матрица единичная
+        elif Q_status == '1':
+            Q = np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1]])
+
+        P = Q/((0.005*3)**2)
+
+        return P
+
 
     def geometric_chi_test_statictics(self, station,
                                       time_series_df: DataFrame,
@@ -603,50 +675,94 @@ class Tests:
 
         return X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_df
 
-    def geometric_without_wls(self,
-                                time_series_frag: np.ndarray,
-                                sigma: np.ndarray,
-                                sigma_0,
-                                covariances,
-                                Q_status) -> tuple:
-        # Фрагмент временного ряда с одной станцией
-        time_series_frag = pd.DataFrame(time_series_frag)
-        time_series_frag.reset_index(drop=True, inplace=True)
-        time_series_frag.columns = [0, 1, 2]
+    def geometric_without_wls(self, station,
+                                      time_series_df: DataFrame,
+                                      window_size: str,
+                                      sigma_0,
+                                      Q_status) -> tuple:
 
-        # скп для этой станции
-        sigma = pd.DataFrame(sigma)
-        sigma.reset_index(drop=True, inplace=True)
-        sigma.columns = [0, 1, 2]
+        X_WLS = []
+        Qv_WLS = []
+        wls_times = []
+        initial_values_X = []
+        initial_values_Qv = []
+        initial_values_mu = []
+        mu_list = []
 
-        # ковариации для этой станции
-        covariances = pd.DataFrame(covariances)
-        covariances.reset_index(drop=True, inplace=True)
-        covariances.columns = [0, 1, 2]
+        time_series_df['Date'] = pd.to_datetime(time_series_df['Date'])
 
-        # заполнение матрицы Q
-        for i in range(time_series_frag.shape[0]):
-            sde = sigma[0][i]
-            sdn = sigma[1][i]
-            sdu = sigma[2][i]
-            sden = covariances[0][i]
-            sdnu = covariances[1][i]
-            sdue = covariances[2][i]
+        # Получение датафрейма со списком уникальных дат
+        dates = time_series_df['Date']
+        # Сортировка дат
+        dates = sorted(dates)
 
-            Q = np.array([
-                # [sdn**2, sden**2, sdue**2],
-                # [sden**2, sde**2, sdnu**2],
-                # [sdue**2, sdnu**2, sdu**2]])
-                [sdn ** 2, 0, 0],
-                [0, sde ** 2, 0],
-                [0, 0, sdu ** 2]])
+        time_series_df.set_index('Date', inplace=True)
+
+        # Вычисление начального значения
+        start_date = dates[0]
+        end_date = dates[1]
+        fragment = time_series_df.loc[time_series_df.index.isin([start_date, end_date])]
+
+        coord_cols = [col for col in fragment.columns if
+                      col.startswith('x_') or col.startswith('y_') or col.startswith('z_')]
+        sigma_cols = [f'sde_{station}' if col.startswith('x_') else f'sdn_{station}' if col.startswith(
+            'y_') else f'sdu_{station}' for col in coord_cols]
+        covariance_cols = [f'sden_{station}' if col.startswith('x_') else f'sdnu_{station}' if col.startswith(
+            'y_') else f'sdue_{station}' for col in coord_cols]
+        mu_col = f'sigma0_{station}'
+
+        '''x_LS_first, _, Qv, mu_first, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                       sigma=fragment[sigma_cols],
+                                                                       covariances=fragment[covariance_cols],
+                                                                       sigma_0=sigma_0, Q_status=Q_status)
+        initial_values_X.append(x_LS_first)
+        initial_values_Qv.append(Qx)
+        initial_values_mu.append(mu_first)'''
 
 
-        P = Q / (0.005 ** 2)
 
+        for i in range(len(dates)): # -1
+            start_date = dates[i]
+            # end_date = dates[i + 1]
 
+            wls_times.append(start_date) # end_date
+            # извлечение фрагмента
+            fragment = time_series_df.loc[time_series_df.index.isin([start_date])]
 
-        return x_LS_first, x_LS, Qv, mu, Qx
+            # Apply the least squares code to the fragment
+            Q = self.chi_test_calc_without_wls(time_series_frag=fragment[coord_cols],
+                                                                        sigma=fragment[sigma_cols],
+                                                                        covariances=fragment[covariance_cols],
+                                                                        mu=fragment[mu_col],
+                                                                        sigma_0=sigma_0, Q_status=Q_status)
+
+            #X_WLS.append(x_LS)
+            Qv_WLS.append(Q)
+            #mu_list.append(mu)
+
+        # конвертация списков в формат numpy
+        X_WLS, mu_list = np.array(X_WLS), np.array(mu_list)
+
+        time_series_df.reset_index(inplace=True)
+
+        wls_df = time_series_df[['Date', f'x_{station}', f'y_{station}', f'z_{station}']]
+        #wls_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
+        # не надо Qv_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
+        Qv_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'Qv_{station}': Qv_WLS})
+        Qv_df.to_csv('Qv_df.csv', sep=';', index=False)
+        mu_df = time_series_df[['Date', f'sigma0_{station}']].rename(columns={f'sigma0_{station}': f'MU_{station}'})
+
+        # добавляем колонку с датами в датафреймы
+        #wls_df['Date'] = pd.to_datetime(wls_times)
+
+        #wls_df.iloc[:, 1:] = X_WLS
+        # Qv_df.iloc[:, 1:] = Qv_WLS
+
+        # вычисляем статистику теста (данный фрагмент перенесен в _perform_chi2_test, будет удален)
+        test_statistic = 0
+
+        return X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_df
+
 
     def interpolate_missing_values(self, df: DataFrame) -> DataFrame:
         """
@@ -678,7 +794,7 @@ class Tests:
                 df_filtered[col] = medfilt(df_filtered[col], kernel_size=kernel_size)
         return df_filtered
 
-    def perform_wls(self, df: DataFrame, window_size: str, sigma_0: float, Q_status) -> tuple:
+    def perform_wls(self, df: DataFrame, window_size: str, sigma_0: float, Q_status, wls_status) -> tuple:
         """
         Performs a weighted least squares (WLS) on the given DataFrame.
 
@@ -711,11 +827,19 @@ class Tests:
             # медианный фильтр
             station_df_filtered = self.filter_data(station_df, kernel_size=11)
 
-            # Perform the geometric chi test
-            X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(station=station,
-                                                                                              time_series_df=station_df_filtered,
-                                                                                              window_size=window_size,
-                                                                                              sigma_0=sigma_0, Q_status=Q_status)
+            if wls_status == '1':
+                # Perform the geometric chi test
+                X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(station=station,
+                                                                                                  time_series_df=station_df_filtered,
+                                                                                                  window_size=window_size,
+                                                                                                  sigma_0=sigma_0, Q_status=Q_status)
+            if wls_status == '0':
+                X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_without_wls(
+                    station=station,
+                    time_series_df=station_df_filtered,
+                    window_size=window_size,
+                    sigma_0=sigma_0, Q_status=Q_status)
+
             # Append the wls_df to the list
             raw_dfs.append(station_df_raw)
             filtered_dfs.append(station_df_filtered)
@@ -1139,6 +1263,9 @@ def main() -> None:
     # инициализация объекта Tests
     test = Tests(df)
 
+    # WLS
+    wls_status = str(input('Нужна ли линейная регрессия \nда - 1\nнет - 0\n '))
+
     # размер окна
     window_size = str(input('Размер окна: '))
 
@@ -1146,7 +1273,9 @@ def main() -> None:
     Q_status = str(input('Матрица Q (в лин регрессии)\nединичная - 1\nс ковариациями - 0\n'))
     Qdd_status = str(input('Матрица Qdd (в хи-тесте)\nединичная - 1\nс ковариациями - 0\n'))
     m_coef = float(input('Масштабный коэффициент: '))
-    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.05, Q_status) #0.02
+
+    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df=df, window_size=window_size, sigma_0=0.05,
+                                                              Q_status=Q_status, wls_status=wls_status) #0.02
 
     # перевод дат в корректный формат
     wls['Date'] = wls['Date'].dt.to_pydatetime()
