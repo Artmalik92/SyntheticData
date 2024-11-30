@@ -1,4 +1,6 @@
 import os
+from pprint import pprint
+
 import numpy as np
 from numpy.linalg import pinv
 from numpy import diag
@@ -265,14 +267,16 @@ class Tests:
 
         # Матрица Qdd единичная или стандартная
         if Qdd_status == '1':
-            Qdd = np.eye(d.shape[0])
+            Qdd = np.eye(Qv.shape[0])
         elif Qdd_status == '0':
             Qdd = Qv
-        np.savetxt('Qdd.txt', Qdd, fmt='%.6f', delimiter=',')
+
         # Вычисление статистики
-        K = (d.transpose().dot(np.linalg.inv(Qdd)).dot(d) / (sigma_0)) * m_coef # сигмы уже возведены в квадрат
+        # K = (d.transpose().dot(np.linalg.inv(Qdd)).dot(d) / (sigma_0)) * m_coef # сигмы уже возведены в квадрат
+        K = (d.dot(np.linalg.inv(Qdd)).dot(d.transpose()) / sigma_0) * m_coef
         # Вычисление тестового значения статистики
-        test_value = chi2.ppf(df=((int(d.shape[0])/3)*6), q=threshold)
+        # test_value = chi2.ppf(df=((int(d.shape[0])/3)*6), q=threshold)
+        test_value = chi2.ppf(df=((d.shape[0]) / 3) * 6, q=0.95)
         # test_value = chi2.ppf(df=(d.shape[0]-1), q=threshold)
 
         # Проверка гипотезы
@@ -287,7 +291,7 @@ class Tests:
                            m_coef,
                            Qdd_status,
                            Qv: DataFrame,
-                           max_drop: int = 1) -> list:
+                           max_drop: int = 1) -> tuple:
         """
         Finds the offset points for the given DataFrame and method.
 
@@ -364,7 +368,7 @@ class Tests:
                 if offset_points and offset_points[-1][0] == start_date and offset_points[-1][1] == end_date:
                     break
 
-        return offset_points
+        return offset_points, rejected_dates
 
     def drop_station_columns(self,
                              df: DataFrame,
@@ -455,9 +459,12 @@ class Tests:
                 sdue = covariances[2][i]
 
                 Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
-                    [sdn**2, sden**2, sdue**2],
-                    [sden**2, sde**2, sdnu**2],
-                    [sdue**2, sdnu**2, sdu**2]])
+                    # [sdn**2, sden**2, sdue**2],
+                    # [sden**2, sde**2, sdnu**2],
+                    # [sdue**2, sdnu**2, sdu**2]])
+                    [sdn ** 2, 0     , 0      ],
+                    [0       , sde**2, 0      ],
+                    [0       ,       0, sdu**2]])
         # если матрица единичная
         elif Q_status == '1':
             for i in range(time_series_frag.shape[0]):
@@ -466,12 +473,16 @@ class Tests:
                     [1, 0, 0],
                     [0, 1, 0],
                     [0, 0, 1]])
-        Q /= 0.0004
+
+        P = Q/(0.005**2)
         np.savetxt('Q.txt', Q, fmt='%.6f', delimiter=',')
         # решаем СЛАУ
-        N = A.transpose().dot(np.linalg.inv(Q)).dot(A)
+        # [print(i) for i in P]
+        # print("=====")
+        # print(P)
+        N = A.transpose().dot(np.linalg.inv(P)).dot(A)
 
-        X = np.linalg.inv(N).dot(A.transpose().dot(np.linalg.inv(Q)).dot(L))  # вектор параметров кинематической модели
+        X = np.linalg.inv(N).dot(A.transpose().dot(np.linalg.inv(P)).dot(L))  # вектор параметров кинематической модели
 
         x_LS = np.array([X[0] * t[-1] + X[3], X[1] * t[-1] + X[4], X[2] * t[-1] + X[5]])
 
@@ -481,8 +492,10 @@ class Tests:
         V = A.dot(X) - L
 
         # СКП единицы веса
-        mu = np.sqrt(np.sum(V.transpose().dot(np.linalg.inv(Q)).dot(V)) / (V.shape[0] - 6))
-        Qx = np.linalg.inv(N) * mu ** 2
+        mu = np.sqrt(np.sum(V.transpose().dot(np.linalg.inv(P)).dot(V)) / (V.shape[0] - 6))
+
+        # Qx = np.linalg.inv(N) * mu ** 2
+        Qx = np.linalg.inv(N)
         C = np.array([[t[-1], 0, 0, 1, 0, 0], [0, t[-1], 0, 0, 1, 0], [0, 0, t[-1], 0, 0, 1]])
         Qv = C.dot(Qx).dot(C.transpose())
 
@@ -589,6 +602,51 @@ class Tests:
             test_statistic[l] = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)'''
 
         return X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_df
+
+    def geometric_without_wls(self,
+                                time_series_frag: np.ndarray,
+                                sigma: np.ndarray,
+                                sigma_0,
+                                covariances,
+                                Q_status) -> tuple:
+        # Фрагмент временного ряда с одной станцией
+        time_series_frag = pd.DataFrame(time_series_frag)
+        time_series_frag.reset_index(drop=True, inplace=True)
+        time_series_frag.columns = [0, 1, 2]
+
+        # скп для этой станции
+        sigma = pd.DataFrame(sigma)
+        sigma.reset_index(drop=True, inplace=True)
+        sigma.columns = [0, 1, 2]
+
+        # ковариации для этой станции
+        covariances = pd.DataFrame(covariances)
+        covariances.reset_index(drop=True, inplace=True)
+        covariances.columns = [0, 1, 2]
+
+        # заполнение матрицы Q
+        for i in range(time_series_frag.shape[0]):
+            sde = sigma[0][i]
+            sdn = sigma[1][i]
+            sdu = sigma[2][i]
+            sden = covariances[0][i]
+            sdnu = covariances[1][i]
+            sdue = covariances[2][i]
+
+            Q = np.array([
+                # [sdn**2, sden**2, sdue**2],
+                # [sden**2, sde**2, sdnu**2],
+                # [sdue**2, sdnu**2, sdu**2]])
+                [sdn ** 2, 0, 0],
+                [0, sde ** 2, 0],
+                [0, 0, sdu ** 2]])
+
+
+        P = Q / (0.005 ** 2)
+
+
+
+        return x_LS_first, x_LS, Qv, mu, Qx
 
     def interpolate_missing_values(self, df: DataFrame) -> DataFrame:
         """
@@ -823,7 +881,7 @@ class Tests:
         # удаляем обработчик StringIO
         logger.removeHandler(string_io_handler)
 
-    def create_html_report_for_tests(self, offset_points, wls, raw, filtered, window_size,
+    def create_html_report_for_tests(self, offset_points, rejected_dates, wls, raw, filtered, window_size,
                            file_path, file_name, Q_status, Qdd_status, m_coef):
         # сохранение результатов в таблицу для HTML отчета
         offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
@@ -929,11 +987,17 @@ class Tests:
                                      line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
                           row=3, col=1)
 
+            # подсвечиваем даты-кандидаты на графике
+            for start_date, end_date in rejected_dates:
+                fig.add_vrect(x0=start_date, x1=end_date,
+                              fillcolor='red', opacity=0.2,
+                              layer='below', line_width=0)
+
             # подсвечиваем смещения на графике
             for start_date, end_date in offsets:
                 fig.add_vrect(x0=start_date, x1=end_date,
-                              fillcolor='red', opacity=0.5,
-                              layer='below', line_width=0)
+                              fillcolor='green', opacity=0.5,
+                              layer='above', line_width=0)
 
             for i in range(3):
                 fig.update_xaxes(showgrid=False, row=i + 1, col=1)
@@ -1035,7 +1099,7 @@ class Tests:
                 # Get the rejected dates and extract intervals
                 ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=wls, calculation="all_dates",
                                                                                  sigma_0=mu_mean_df,
-                                                                                 Qv=Qv)
+                                                                                 Qv=Qv, Qdd_status=Qdd_status)
                 rejected_dates = ttest_rejected_dates + chi2_rejected_dates
                 if rejected_dates:
                     print(f"Rejected dates: {rejected_dates}")
@@ -1076,7 +1140,7 @@ def main() -> None:
     test = Tests(df)
 
     # размер окна
-    window_size = '1min'
+    window_size = str(input('Размер окна: '))
 
     # обработка координат при помощи МНК
     Q_status = str(input('Матрица Q (в лин регрессии)\nединичная - 1\nс ковариациями - 0\n'))
@@ -1088,7 +1152,9 @@ def main() -> None:
     wls['Date'] = wls['Date'].dt.to_pydatetime()
     MU.to_csv('MU.csv', sep=';', index=False)
     # Геометрический тест + поиск станций со смещением
-    offset_points = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2, Qdd_status=Qdd_status, m_coef=m_coef)
+
+    offset_points, rejected_dates = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2, Qdd_status=Qdd_status, m_coef=m_coef)
+
 
     ''' for window iteration
     offsets, offset_dates = test.window_iteration(df)
@@ -1098,7 +1164,8 @@ def main() -> None:
     '''
 
     # Создание отчета
-    test.create_html_report_for_tests(offset_points=offset_points, wls=wls, raw=raw, filtered=filtered,
+    test.create_html_report_for_tests(offset_points=offset_points, rejected_dates=rejected_dates,
+                                      wls=wls, raw=raw, filtered=filtered,
                             window_size=window_size, file_path=file_path, file_name=file_name,
                             Q_status=Q_status, Qdd_status=Qdd_status, m_coef=m_coef)
 
