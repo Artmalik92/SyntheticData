@@ -38,7 +38,7 @@ class Tests:
     """
     def __init__(self, df: DataFrame):
         """
-        Initializes a SyntheticData object.
+        Initializes a Tests object.
 
         Args:
             df (DataFrame): DataFrame containing time series
@@ -252,8 +252,8 @@ class Tests:
                            sigma_0: float,
                            threshold: float,
                            Qv: np.ndarray,
-                           Qdd_status,
-                           m_coef) -> tuple:
+                           Qdd_status: str,
+                           m_coef: float) -> tuple:
         """
         Performs a Chi2 test on the given list of differences.
 
@@ -291,9 +291,9 @@ class Tests:
 
     def find_offset_points(self,
                            df: DataFrame,
-                           sigma_0,
-                           m_coef,
-                           Qdd_status,
+                           sigma_0: DataFrame,
+                           m_coef: float,
+                           Qdd_status: str,
                            Qv: DataFrame,
                            max_drop: int = 1) -> tuple:
         """
@@ -301,65 +301,64 @@ class Tests:
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            method (str): The method to use for the congruence test (line_based or coordinate_based).
-            sigma_0 (float, optional): The sigma_0 value for the Chi2 test. Defaults to 0.005.
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
             Qv (DataFrame): The variance matrix of the residuals.
             max_drop (int, optional): The maximum number of stations to drop. Defaults to 1.
 
         Returns:
             list: A list of offset points.
         """
+        # Список для деформированных станций
         offset_points = []
 
-        # сумма всех значений возведенных в квадрат
-        # sum_of_squares = sigma_0.iloc[:, 2:].apply(lambda row: sum(row ** 2), axis=1)
-        # mu_mean_df = pd.DataFrame({'Date': sigma_0['Date'],'Sum_of_Squares': sum_of_squares})
-
+        # сумма всех значений sigma возведенных в квадрат
         sum_of_squares = sigma_0.drop('Date', axis=1).apply(lambda row: sum(row ** 2), axis=1)
+
         # создаем датафрейм с ними
         mu_mean_df = sigma_0[['Date']].copy()
         mu_mean_df['Sum_of_Squares'] = sum_of_squares
 
-        ''' старая версия
-        mean_values = sigma_0.drop('Date', axis=1).mean(axis=1)
-        # Create a new DataFrame with the 'Date' column and the mean values
-        mu_mean_df = sigma_0[['Date']].copy()
-        mu_mean_df['Sum_of_Squares'] = mean_values'''
-
+        # находим даты с деформациями при помощи геометрического теста
         ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=df,
-                                                                         calculation="all_dates", sigma_0=mu_mean_df, Qv=Qv,
-                                                                         Qdd_status=Qdd_status, m_coef=m_coef)
+                                                                         calculation="all_dates", sigma_0=mu_mean_df,
+                                                                         Qv=Qv, Qdd_status=Qdd_status, m_coef=m_coef)
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
 
         logger.info('<h2>Finding the offset points:</h2>')
 
-        # Получаем список с названиями станций и дропаем повторяющиеся значения
+        # Получаем список с названиями станций и сбрасываем повторяющиеся значения
         station_names = list(set(df.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
+        # Цикл перебора для нахождения деформированных станций
         for start_date, end_date in rejected_dates:
+            # Создаем датафрейм, который содержит временной интервал с деформацией
             date_range_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
+            # Цикл для сброса разного кол-ва станций (начиная с одной, заканчивая max_drop)
             for drop_count in range(1, min(max_drop + 1, len(station_names) + 1)):
+                # Находим все возможные комбинации станций при помощи itertools и создаем цикл
                 for station_combination in itertools.combinations(station_names, drop_count):
                     logger.info(f'Calculating for stations {station_combination} and dates {start_date} to {end_date}')
+                    # формируем датафреймы, исключая подозреваемую станцию/станции
                     non_station_df = self.drop_station_columns(date_range_df, station_combination)
                     non_station_qv = self.drop_station_columns(Qv, station_combination)
                     non_station_sigma = self.drop_station_columns(sigma_0, station_combination)
 
+                    # заново находим сумму значений sigma
                     sum_of_squares = non_station_sigma.drop('Date', axis=1).apply(lambda row: sum(row ** 2), axis=1)
                     # создаем датафрейм с ними
                     mu_mean_df = non_station_sigma[['Date']].copy()
                     mu_mean_df['Sum_of_Squares'] = sum_of_squares
-                    '''# старая версия
-                    mean_values = non_station_sigma.drop('Date', axis=1).mean(axis=1)
-                    # Create a new DataFrame with the 'Date' column and the mean values
-                    mu_mean_df = non_station_sigma[['Date']].copy()
-                    mu_mean_df['Sum_of_Squares'] = mean_values'''
 
+                    # Исключив подозреваемые станции, проводим геометрический тест
                     ttest_rejected, chi2_rejected = self.congruency_test(df=non_station_df,
                                                                          calculation="specific_date",
                                                                          start_date=start_date, end_date=end_date,
                                                                          sigma_0=mu_mean_df, Qv=non_station_qv,
                                                                          Qdd_status=Qdd_status, m_coef=m_coef)
+
+                    # Если деформация исчезла, записываем данные об исключенных станциях и завершаем цикл
                     if not (ttest_rejected or chi2_rejected):
                         station_cols = [col for col in date_range_df.columns if
                                         any(station in col for station in station_combination)]
@@ -369,6 +368,7 @@ class Tests:
                         for station in station_combination:
                             offset_points.append((start_date, end_date, station, offset_size))
                         break
+                # Если искомые станция/станции найдены, прекращаем перебор
                 if offset_points and offset_points[-1][0] == start_date and offset_points[-1][1] == end_date:
                     break
 
@@ -387,7 +387,7 @@ class Tests:
         Returns:
             DataFrame: The DataFrame with the specified station columns dropped.
         """
-        # отбрасываем колонны, соответствующие указанной станции
+        # удаляем колонны, соответствующие указанной станции
         station_cols = [col for col in df.columns if any(station in col for station in stations)]
         return df.drop(station_cols, axis=1)
 
