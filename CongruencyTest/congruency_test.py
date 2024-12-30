@@ -1,6 +1,4 @@
 import os
-from pprint import pprint
-
 import numpy as np
 from numpy.linalg import pinv
 from numpy import diag
@@ -51,24 +49,26 @@ class Tests:
     def congruency_test(self,
                         df: DataFrame,
                         Qv: DataFrame,
-                        Qdd_status,
-                        m_coef,
+                        sigma_0: DataFrame,
+                        Qdd_status: str = '0',
+                        m_coef: float = 1,
                         calculation: str = "all_dates",
                         start_date: str = None,
                         end_date: str = None,
-                        threshold: float = 0.05,
-                        sigma_0=0.005) -> tuple:
+                        threshold: float = 0.95) -> tuple:
         """
         Performs a congruence test on the input DataFrame.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
             Qv (DataFrame): The DataFrame containing variance matrix of the residuals.
-            calculation (str, optional): The type of calculation to perform (all_dates or specific_date). Defaults to "all_dates".
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
+            calculation (str, optional): Test mode (all_dates or specific_date). Defaults to "all_dates".
             start_date (str, optional): The start date for the calculation. Defaults to None.
             end_date (str, optional): The end date for the calculation. Defaults to None.
-            threshold (float, optional): The threshold value for the test. Defaults to 0.05.
-            sigma_0 (float, optional): The sigma_0 value for the Chi2 test. Defaults to 0.005.
+            threshold (float, optional): The threshold value for the test. Defaults to 0.95.
 
         Returns:
             tuple: A tuple containing the rejected dates for the T-test and Chi2 test.
@@ -88,19 +88,24 @@ class Tests:
     def _run_all_dates(self,
                        df: DataFrame,
                        threshold: float,
-                       sigma_0,
+                       sigma_0: DataFrame,
                        ttest_rejected_dates: list,
                        chi2_rejected_dates: list,
-                       Qv: DataFrame, Qdd_status, m_coef) -> None:
+                       Qv: DataFrame,
+                       Qdd_status: str,
+                       m_coef: float) -> None:
         """
         Runs the congruence test for all dates in the DataFrame.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            threshold (float): The threshold value for the test.
+            threshold (float): The threshold value for the test. Defaults to 0.95.
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
             Qv (DataFrame): The DataFrame containing variance matrix of the residuals.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
         """
         # Получение датафрейма со списком уникальных дат
         dates = df['Date']
@@ -120,10 +125,12 @@ class Tests:
                            start_date: str,
                            end_date: str,
                            threshold: float,
-                           sigma_0,
+                           sigma_0: DataFrame,
                            ttest_rejected_dates: list,
                            chi2_rejected_dates: list,
-                           Qv: DataFrame, Qdd_status, m_coef) -> None:
+                           Qv: DataFrame,
+                           Qdd_status: str,
+                           m_coef: float) -> None:
         """
         Runs the congruence test for a specific date range.
 
@@ -131,56 +138,53 @@ class Tests:
             df (DataFrame): The input DataFrame containing time series data.
             start_date (str): The start date for the calculation.
             end_date (str): The end date for the calculation.
-            threshold (float): The threshold value for the test.
+            threshold (float): The threshold value for the test. Defaults to 0.95.
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
             Qv (DataFrame): The DataFrame containing variance matrix of the residuals.
-
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
         """
+        # Вычисляем вектор разностей между двумя датами
         raz_list = self._calculate_raz_list(df, start_date, end_date)
 
-        # не надо вроде Qv.iloc[:, 1:] = Qv.iloc[:, 1:].apply(pd.to_numeric)
-
+        # Находим матрицы Qv для двух дат
         Qv_0 = Qv[Qv['Date'] == start_date]
         Qv_i = Qv[Qv['Date'] == end_date]
 
-        # Initialize a list to collect matrices from all relevant columns
-        matrices = []
+        # Создание списков для хранения матриц
+        matrices_0 = []
+        matrices_i = []
 
-        # Loop through the columns (excluding the 'Date' column)
+        # цикл сборки матриц для первой эпохи
         for column in Qv_0.columns:
             if column != 'Date':
-                # Append the matrix from the current column to the list
-                matrices.extend(Qv_0[column].tolist())
+                matrices_0.extend(Qv_0[column].tolist())
 
-        Qv_0_block = block_diag(*matrices)
-
-        # Initialize a list to collect matrices from all relevant columns
-        matrices = []
-
-        # Loop through the columns (excluding the 'Date' column)
+        # цикл сборки матриц для второй эпохи
         for column in Qv_i.columns:
             if column != 'Date':
-                # Append the matrix from the current column to the list
-                matrices.extend(Qv_i[column].tolist())
+                matrices_i.extend(Qv_i[column].tolist())
 
-        Qv_i_block = block_diag(*matrices)
+        # Из собранных матриц формируем блочно-диагональные
+        Qv_0_block = block_diag(*matrices_0)
+        Qv_i_block = block_diag(*matrices_i)
 
+        # Находим сумму матриц
         Qv_sum = Qv_0_block + Qv_i_block
         Qv_sum = np.array(Qv_sum.tolist())
 
-        ''' это старая версия # сомнительно
-        sigma_0_two_dates = sigma_0[(sigma_0['Date'] >= start_date) & (sigma_0['Date'] <= end_date)]
-        sigma_0_mean = sigma_0_two_dates.iloc[:, 1:].mean(axis=0)
-        sigma_0 = sigma_0_mean.item()'''
-
+        # Находим сумму значений sigma
         mu_0 = sigma_0[sigma_0['Date'] == start_date]
         mu_i = sigma_0[sigma_0['Date'] == end_date]
         mu_sum = (mu_0['Sum_of_Squares'].reset_index(drop=True) + mu_i['Sum_of_Squares'].reset_index(drop=True).sum())
         sigma_0 = float(mu_sum.iloc[0])
 
+        # Записываем в логи значение статистики теста Шапиро-Уилка
         logger.info('Shapiro: %s', shapiro(raz_list))
 
+        # Тест Хи-квадрат
         chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum,
                                                              Qdd_status=Qdd_status, m_coef=m_coef)
         if chi2_result:
@@ -208,7 +212,7 @@ class Tests:
             list: A list of differences for the congruence test.
         """
         # Конвертация столбцов с координатами в числовой формат
-        df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric)  #errors='coerce'
+        df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric)
         df = df.loc[:, df.columns.str.startswith(('x_', 'y_', 'z_')) | (df.columns == 'Date')]
 
         row_0 = df[df['Date'] == start_date]
@@ -245,7 +249,7 @@ class Tests:
 
     def _perform_chi2_test(self,
                            raz_list: list,
-                           sigma_0,
+                           sigma_0: float,
                            threshold: float,
                            Qv: np.ndarray,
                            Qdd_status,
@@ -258,6 +262,8 @@ class Tests:
             sigma_0 (float): The sigma-0 value for the test.
             threshold (float): The threshold value for the test.
             Qv (np.ndarray): The variance matrix of the residuals.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
 
         Returns:
             tuple: A tuple containing the result of the Chi2 test, K-value, and test value.
@@ -265,24 +271,17 @@ class Tests:
         # вектор разностей между эпохами
         d = np.array(raz_list)
 
-        # Матрица Qdd единичная или стандартная
+        # Формирование матрицы Qdd согласно заданному статусу
         if Qdd_status == '1':
-            Qdd = np.eye(Qv.shape[0])
+            Qdd = np.eye(Qv.shape[0])  # Единичная матрица Qdd
         elif Qdd_status == '0':
-            Qdd = Qv
+            Qdd = Qv  # Ковариационная матрица Qdd
 
         # Вычисление статистики
-        # K = (d.transpose().dot(np.linalg.inv(Qdd)).dot(d) / (sigma_0)) * m_coef # сигмы уже возведены в квадрат
         K = (d.dot(np.linalg.inv(Qdd)).dot(d.transpose()) / sigma_0) * m_coef
-        print('_____________')
-        print(Qdd)
-        print('d', d)
-        print('K', K)
-        print('mu', sigma_0)
+
         # Вычисление тестового значения статистики
-        # test_value = chi2.ppf(df=((int(d.shape[0])/3)*6), q=threshold)
-        test_value = chi2.ppf(df=((d.shape[0]) / 3) * 6, q=0.95)
-        # test_value = chi2.ppf(df=(d.shape[0]-1), q=threshold)
+        test_value = chi2.ppf(df=((d.shape[0]) / 3) * 6, q=threshold)
 
         # Проверка гипотезы
         if K > test_value:
@@ -829,10 +828,11 @@ class Tests:
 
             if wls_status == '1':
                 # Perform the geometric chi test
-                X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(station=station,
-                                                                                                  time_series_df=station_df_filtered,
-                                                                                                  window_size=window_size,
-                                                                                                  sigma_0=sigma_0, Q_status=Q_status)
+                X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(
+                    station=station,
+                    time_series_df=station_df_filtered,
+                    window_size=window_size,
+                    sigma_0=sigma_0, Q_status=Q_status)
             if wls_status == '0':
                 X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_without_wls(
                     station=station,
@@ -1263,7 +1263,7 @@ def main() -> None:
     # инициализация объекта Tests
     test = Tests(df)
 
-    # WLS
+    # WLS статус
     wls_status = str(input('Нужна ли линейная регрессия \nда - 1\nнет - 0\n '))
 
     # размер окна
@@ -1274,29 +1274,20 @@ def main() -> None:
     Qdd_status = str(input('Матрица Qdd (в хи-тесте)\nединичная - 1\nс ковариациями - 0\n'))
     m_coef = float(input('Масштабный коэффициент: '))
 
+    # Выполнение линейной регрессии
     wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df=df, window_size=window_size, sigma_0=0.05,
-                                                              Q_status=Q_status, wls_status=wls_status) #0.02
+                                                              Q_status=Q_status, wls_status=wls_status)
 
     # перевод дат в корректный формат
     wls['Date'] = wls['Date'].dt.to_pydatetime()
-    MU.to_csv('MU.csv', sep=';', index=False)
-    # Геометрический тест + поиск станций со смещением
 
+    # Геометрический тест + поиск станций со смещением
     offset_points, rejected_dates = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2, Qdd_status=Qdd_status, m_coef=m_coef)
 
-
-    ''' for window iteration
-    offsets, offset_dates = test.window_iteration(df)
-    print('offsets', offset_dates)
-    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=MU, Qv=Qv, max_drop=2,
-                                            rejected_dates=offset_dates)
-    '''
-
     # Создание отчета
-    test.create_html_report_for_tests(offset_points=offset_points, rejected_dates=rejected_dates,
-                                      wls=wls, raw=raw, filtered=filtered,
-                            window_size=window_size, file_path=file_path, file_name=file_name,
-                            Q_status=Q_status, Qdd_status=Qdd_status, m_coef=m_coef)
+    test.create_html_report_for_tests(offset_points=offset_points, rejected_dates=rejected_dates, wls=wls, raw=raw,
+                                      filtered=filtered, window_size=window_size, file_path=file_path,
+                                      file_name=file_name, Q_status=Q_status, Qdd_status=Qdd_status, m_coef=m_coef)
 
 
 if __name__ == "__main__":

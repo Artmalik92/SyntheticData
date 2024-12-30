@@ -162,11 +162,11 @@ def makefile(directory: str,
 merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "BUZZ"],
                        zero_epoch_coords=None,
                        dropna=False,
-                       directory='2024-08-29-with-sigma-0',
+                       directory='2024-08-29-last',
                        resample_interval=None,
                        fixed_solution_only=False)
 
-merged_data.to_csv('Data/input_files/with-sigma0-2024-08-09.csv', sep=';', index=False)
+merged_data.to_csv('Data/input_files/2024-08-29-last.csv', sep=';', index=False)
 
 print('Done')
 
