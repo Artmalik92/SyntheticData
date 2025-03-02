@@ -1,10 +1,10 @@
 import os
 import numpy as np
-from numpy.linalg import pinv
 import pandas as pd
 from pandas import DataFrame
 from scipy.stats import ttest_1samp, shapiro, chi2
 from scipy.signal import medfilt
+from scipy.linalg import block_diag
 from jinja2 import Template
 from io import StringIO, BytesIO
 import logging
@@ -36,7 +36,7 @@ class Tests:
     """
     def __init__(self, df: DataFrame):
         """
-        Initializes a SyntheticData object.
+        Initializes a Tests object.
 
         Args:
             df (DataFrame): DataFrame containing time series
@@ -47,22 +47,26 @@ class Tests:
     def congruency_test(self,
                         df: DataFrame,
                         Qv: DataFrame,
+                        sigma_0: DataFrame,
+                        Qdd_status: str = '0',
+                        m_coef: float = 1,
                         calculation: str = "all_dates",
                         start_date: str = None,
                         end_date: str = None,
-                        threshold: float = 0.05,
-                        sigma_0 = 0.005) -> tuple:
+                        threshold: float = 0.95) -> tuple:
         """
         Performs a congruence test on the input DataFrame.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
             Qv (DataFrame): The DataFrame containing variance matrix of the residuals.
-            calculation (str, optional): The type of calculation to perform (all_dates or specific_date). Defaults to "all_dates".
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
+            calculation (str, optional): Test mode (all_dates or specific_date). Defaults to "all_dates".
             start_date (str, optional): The start date for the calculation. Defaults to None.
             end_date (str, optional): The end date for the calculation. Defaults to None.
-            threshold (float, optional): The threshold value for the test. Defaults to 0.05.
-            sigma_0 (float, optional): The sigma_0 value for the Chi2 test. Defaults to 0.005.
+            threshold (float, optional): The threshold value for the test. Defaults to 0.95.
 
         Returns:
             tuple: A tuple containing the rejected dates for the T-test and Chi2 test.
@@ -71,29 +75,35 @@ class Tests:
         chi2_rejected_dates = []
 
         if calculation == "all_dates":
-            self._run_all_dates(df, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv)
+            self._run_all_dates(df, threshold, sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv,
+                                Qdd_status=Qdd_status, m_coef=m_coef)
         elif calculation == "specific_date":
             self._run_specific_date(df, start_date, end_date, threshold, sigma_0, ttest_rejected_dates,
-                                    chi2_rejected_dates, Qv=Qv)
+                                    chi2_rejected_dates, Qv=Qv, Qdd_status=Qdd_status, m_coef=m_coef)
 
         return ttest_rejected_dates, chi2_rejected_dates
 
     def _run_all_dates(self,
                        df: DataFrame,
                        threshold: float,
-                       sigma_0,
+                       sigma_0: DataFrame,
                        ttest_rejected_dates: list,
                        chi2_rejected_dates: list,
-                       Qv: DataFrame) -> None:
+                       Qv: DataFrame,
+                       Qdd_status: str,
+                       m_coef: float) -> None:
         """
         Runs the congruence test for all dates in the DataFrame.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            threshold (float): The threshold value for the test.
+            threshold (float): The threshold value for the test. Defaults to 0.95.
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
             Qv (DataFrame): The DataFrame containing variance matrix of the residuals.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
         """
         # Получение датафрейма со списком уникальных дат
         dates = df['Date']
@@ -105,17 +115,20 @@ class Tests:
             logger.info(f"Calculating for dates: {start_date} and {end_date}")
             # Вызов функции congruency_test для каждой пары дат
             self._run_specific_date(df, start_date, end_date, threshold,
-                                    sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv)
+                                    sigma_0, ttest_rejected_dates, chi2_rejected_dates, Qv=Qv,
+                                    Qdd_status=Qdd_status, m_coef=m_coef)
 
     def _run_specific_date(self,
                            df: DataFrame,
                            start_date: str,
                            end_date: str,
                            threshold: float,
-                           sigma_0,
+                           sigma_0: DataFrame,
                            ttest_rejected_dates: list,
                            chi2_rejected_dates: list,
-                           Qv: DataFrame) -> None:
+                           Qv: DataFrame,
+                           Qdd_status: str,
+                           m_coef: float) -> None:
         """
         Runs the congruence test for a specific date range.
 
@@ -123,29 +136,55 @@ class Tests:
             df (DataFrame): The input DataFrame containing time series data.
             start_date (str): The start date for the calculation.
             end_date (str): The end date for the calculation.
-            threshold (float): The threshold value for the test.
+            threshold (float): The threshold value for the test. Defaults to 0.95.
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
             ttest_rejected_dates (list): A list to store the rejected dates for the T-test.
             chi2_rejected_dates (list): A list to store the rejected dates for the Chi2 test.
             Qv (DataFrame): The DataFrame containing variance matrix of the residuals.
-
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
         """
+        # Вычисляем вектор разностей между двумя датами
         raz_list = self._calculate_raz_list(df, start_date, end_date)
 
-        Qv.iloc[:, 1:] = Qv.iloc[:, 1:].apply(pd.to_numeric)
-
+        # Находим матрицы Qv для двух дат
         Qv_0 = Qv[Qv['Date'] == start_date]
         Qv_i = Qv[Qv['Date'] == end_date]
 
-        Qv_sum = Qv_0.iloc[0, 1:] + Qv_i.iloc[0, 1:]
+        # Создание списков для хранения матриц
+        matrices_0 = []
+        matrices_i = []
+
+        # цикл сборки матриц для первой эпохи
+        for column in Qv_0.columns:
+            if column != 'Date':
+                matrices_0.extend(Qv_0[column].tolist())
+
+        # цикл сборки матриц для второй эпохи
+        for column in Qv_i.columns:
+            if column != 'Date':
+                matrices_i.extend(Qv_i[column].tolist())
+
+        # Из собранных матриц формируем блочно-диагональные
+        Qv_0_block = block_diag(*matrices_0)
+        Qv_i_block = block_diag(*matrices_i)
+
+        # Находим сумму матриц
+        Qv_sum = Qv_0_block + Qv_i_block
         Qv_sum = np.array(Qv_sum.tolist())
 
-        sigma_0_two_dates = sigma_0[(sigma_0['Date'] >= start_date) & (sigma_0['Date'] <= end_date)]
-        sigma_0_mean = sigma_0_two_dates.iloc[:, 1:].mean(axis=0)
-        sigma_0 = sigma_0_mean.item()
+        # Находим сумму значений sigma
+        mu_0 = sigma_0[sigma_0['Date'] == start_date]
+        mu_i = sigma_0[sigma_0['Date'] == end_date]
+        mu_sum = (mu_0['Sum_of_Squares'].reset_index(drop=True) + mu_i['Sum_of_Squares'].reset_index(drop=True).sum())
+        sigma_0 = float(mu_sum.iloc[0])
 
+        # Записываем в логи значение статистики теста Шапиро-Уилка
         logger.info('Shapiro: %s', shapiro(raz_list))
 
-        chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum)
+        # Тест Хи-квадрат
+        chi2_result, K, test_value = self._perform_chi2_test(raz_list, sigma_0, threshold, Qv=Qv_sum,
+                                                             Qdd_status=Qdd_status, m_coef=m_coef)
         if chi2_result:
             chi2_rejected_dates.append((start_date, end_date))
             logger.info("Chi-2: " + f"<span style='color:red'>Null hypothesis rejected, "
@@ -171,7 +210,7 @@ class Tests:
             list: A list of differences for the congruence test.
         """
         # Конвертация столбцов с координатами в числовой формат
-        df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric)  #errors='coerce'
+        df.iloc[:, 1:] = df.iloc[:, 1:].apply(pd.to_numeric)
         df = df.loc[:, df.columns.str.startswith(('x_', 'y_', 'z_')) | (df.columns == 'Date')]
 
         row_0 = df[df['Date'] == start_date]
@@ -208,9 +247,11 @@ class Tests:
 
     def _perform_chi2_test(self,
                            raz_list: list,
-                           sigma_0,
+                           sigma_0: float,
                            threshold: float,
-                           Qv: np.ndarray) -> tuple:
+                           Qv: np.ndarray,
+                           Qdd_status: str,
+                           m_coef: float) -> tuple:
         """
         Performs a Chi2 test on the given list of differences.
 
@@ -219,17 +260,28 @@ class Tests:
             sigma_0 (float): The sigma-0 value for the test.
             threshold (float): The threshold value for the test.
             Qv (np.ndarray): The variance matrix of the residuals.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
 
         Returns:
             tuple: A tuple containing the result of the Chi2 test, K-value, and test value.
         """
+        # вектор разностей между эпохами
         d = np.array(raz_list)
 
-        Qdd = np.diag(Qv)
-        # Qdd = np.eye(d.shape[0])
-        K = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
-        test_value = chi2.ppf(df=(d.shape[0])-1, q=threshold)
+        # Формирование матрицы Qdd согласно заданному статусу
+        if Qdd_status == '1':
+            Qdd = np.eye(Qv.shape[0])  # Единичная матрица Qdd
+        elif Qdd_status == '0':
+            Qdd = Qv  # Ковариационная матрица Qdd
 
+        # Вычисление статистики
+        K = (d.dot(np.linalg.inv(Qdd)).dot(d.transpose()) / sigma_0) * m_coef
+
+        # Вычисление тестового значения статистики
+        test_value = chi2.ppf(df=((d.shape[0]) / 3) * 6, q=threshold)
+
+        # Проверка гипотезы
         if K > test_value:
             return True, K, test_value
         else:
@@ -237,59 +289,74 @@ class Tests:
 
     def find_offset_points(self,
                            df: DataFrame,
-                           sigma_0,
+                           sigma_0: DataFrame,
+                           m_coef: float,
+                           Qdd_status: str,
                            Qv: DataFrame,
-                           max_drop: int = 1) -> list:
+                           max_drop: int = 1) -> tuple:
         """
         Finds the offset points for the given DataFrame and method.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            method (str): The method to use for the congruence test (line_based or coordinate_based).
-            sigma_0 (float, optional): The sigma_0 value for the Chi2 test. Defaults to 0.005.
+            sigma_0 (DataFrame): The DataFrame containing sigma values for the coordinates.
+            m_coef (float, optional): Scale-factor value for the Chi-test statistic. Defaults to 1.
+            Qdd_status (str, optional): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
             Qv (DataFrame): The variance matrix of the residuals.
             max_drop (int, optional): The maximum number of stations to drop. Defaults to 1.
 
         Returns:
             list: A list of offset points.
         """
+        # Список для деформированных станций
         offset_points = []
 
-        # Calculate the mean value of each row
-        mean_values = sigma_0.drop('Date', axis=1).mean(axis=1)
-        # Create a new DataFrame with the 'Date' column and the mean values
-        mu_mean_df = sigma_0[['Date']].copy()
-        mu_mean_df['mu_mean'] = mean_values
+        # сумма всех значений sigma возведенных в квадрат
+        sum_of_squares = sigma_0.drop('Date', axis=1).apply(lambda row: sum(row ** 2), axis=1)
 
+        # создаем датафрейм с ними
+        mu_mean_df = sigma_0[['Date']].copy()
+        mu_mean_df['Sum_of_Squares'] = sum_of_squares
+
+        # находим даты с деформациями при помощи геометрического теста
         ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=df,
-                                                                         calculation="all_dates", sigma_0=mu_mean_df, Qv=Qv)
+                                                                         calculation="all_dates", sigma_0=mu_mean_df,
+                                                                         Qv=Qv, Qdd_status=Qdd_status, m_coef=m_coef)
         rejected_dates = ttest_rejected_dates + chi2_rejected_dates
 
         logger.info('<h2>Finding the offset points:</h2>')
 
-        # Получаем список с названиями станций и дропаем повторяющиеся значения
+        # Получаем список с названиями станций и сбрасываем повторяющиеся значения
         station_names = list(set(df.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
+        # Цикл перебора для нахождения деформированных станций
         for start_date, end_date in rejected_dates:
+            # Создаем датафрейм, который содержит временной интервал с деформацией
             date_range_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
+            # Цикл для сброса разного кол-ва станций (начиная с одной, заканчивая max_drop)
             for drop_count in range(1, min(max_drop + 1, len(station_names) + 1)):
+                # Находим все возможные комбинации станций при помощи itertools и создаем цикл
                 for station_combination in itertools.combinations(station_names, drop_count):
                     logger.info(f'Calculating for stations {station_combination} and dates {start_date} to {end_date}')
+                    # формируем датафреймы, исключая подозреваемую станцию/станции
                     non_station_df = self.drop_station_columns(date_range_df, station_combination)
                     non_station_qv = self.drop_station_columns(Qv, station_combination)
                     non_station_sigma = self.drop_station_columns(sigma_0, station_combination)
 
-                    # Calculate the mean value of each row
-                    mean_values = non_station_sigma.drop('Date', axis=1).mean(axis=1)
-                    # Create a new DataFrame with the 'Date' column and the mean values
+                    # заново находим сумму значений sigma
+                    sum_of_squares = non_station_sigma.drop('Date', axis=1).apply(lambda row: sum(row ** 2), axis=1)
+                    # создаем датафрейм с ними
                     mu_mean_df = non_station_sigma[['Date']].copy()
-                    mu_mean_df['mu_mean'] = mean_values
+                    mu_mean_df['Sum_of_Squares'] = sum_of_squares
 
-
+                    # Исключив подозреваемые станции, проводим геометрический тест
                     ttest_rejected, chi2_rejected = self.congruency_test(df=non_station_df,
                                                                          calculation="specific_date",
                                                                          start_date=start_date, end_date=end_date,
-                                                                         sigma_0=mu_mean_df, Qv=non_station_qv)
+                                                                         sigma_0=mu_mean_df, Qv=non_station_qv,
+                                                                         Qdd_status=Qdd_status, m_coef=m_coef)
+
+                    # Если деформация исчезла, записываем данные об исключенных станциях и завершаем цикл
                     if not (ttest_rejected or chi2_rejected):
                         station_cols = [col for col in date_range_df.columns if
                                         any(station in col for station in station_combination)]
@@ -299,10 +366,11 @@ class Tests:
                         for station in station_combination:
                             offset_points.append((start_date, end_date, station, offset_size))
                         break
+                # Если искомые станция/станции найдены, прекращаем перебор
                 if offset_points and offset_points[-1][0] == start_date and offset_points[-1][1] == end_date:
                     break
 
-        return offset_points
+        return offset_points, rejected_dates
 
     def drop_station_columns(self,
                              df: DataFrame,
@@ -317,14 +385,125 @@ class Tests:
         Returns:
             DataFrame: The DataFrame with the specified station columns dropped.
         """
-        # отбрасываем колонны, соответствующие указанной станции
+        # удаляем колонны, соответствующие указанной станции
         station_cols = [col for col in df.columns if any(station in col for station in stations)]
         return df.drop(station_cols, axis=1)
 
     def geometric_chi_test_calc(self,
                                 time_series_frag: np.ndarray,
                                 sigma: np.ndarray,
-                                sigma_0) -> tuple:
+                                sigma_0, # to be removed
+                                covariances,
+                                Q_status) -> tuple:
+        """
+        A method that is used in geometric_chi_test_statictics to perform geometric chi test.
+
+        Args:
+            time_series_frag (np.ndarray): The time series fragment.
+            sigma (np.ndarray): The sigma values.
+            sigma_0 (float): The sigma_0 value. To be removed.
+
+        Returns:
+            tuple: A tuple containing the x_LS_first, x_LS, Qv, and mu values.
+        """
+        # Фрагмент временного ряда с одной станцией
+        time_series_frag = pd.DataFrame(time_series_frag)
+        time_series_frag.reset_index(drop=True, inplace=True)
+        time_series_frag.columns = [0, 1, 2]
+
+        # скп для этой станции
+        sigma = pd.DataFrame(sigma)
+        sigma.reset_index(drop=True, inplace=True)
+        sigma.columns = [0, 1, 2]
+
+        # ковариации для этой станции
+        covariances = pd.DataFrame(covariances)
+        covariances.reset_index(drop=True, inplace=True)
+        covariances.columns = [0, 1, 2]
+
+        # маска для NaN значений
+        # mask = ~np.isnan(time_series_frag)
+
+        L = np.zeros((time_series_frag.shape[0] * 3))
+
+        # задаем массив эпох
+        t = np.arange(0, time_series_frag.shape[0], 1)
+
+        # Заполняем массив L
+        for i in range(time_series_frag.shape[0]):
+            for j in range(3):
+                L[3 * i] = time_series_frag[0][i]
+                L[3 * i + 1] = time_series_frag[1][i]
+                L[3 * i + 2] = time_series_frag[2][i]
+
+        # цикл формирования матрицы коэффициентов
+        for m in range(time_series_frag.shape[0]):
+            ti = t[m]
+            if m == 0:
+                A = np.hstack((np.identity(3) * ti, np.identity(3)))
+            else:
+                Aux = np.hstack((np.identity(3) * ti, np.identity(3)))
+                A = np.vstack((A, Aux))
+
+        # создание матрицы Q
+        Q_size = time_series_frag.shape[0] * 3
+        Q = np.zeros((Q_size, Q_size))
+
+        # заполнение матрицы Q
+        if Q_status == '0':
+            for i in range(time_series_frag.shape[0]):
+                row_start = i * 3
+                sde = sigma[0][i]
+                sdn = sigma[1][i]
+                sdu = sigma[2][i]
+                sden = covariances[0][i]
+                sdnu = covariances[1][i]
+                sdue = covariances[2][i]
+
+                Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
+                    [sde**2, sden**2, sdue**2],
+                    [sden**2, sdn**2, sdnu**2],
+                    [sdue**2, sdnu**2, sdu**2]])
+        # если матрица единичная
+        elif Q_status == '1':
+            for i in range(time_series_frag.shape[0]):
+                row_start = i * 3
+                Q[row_start:row_start + 3, row_start:row_start + 3] = np.array([
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1]])
+
+        P = Q/(0.02**2)
+
+        N = A.transpose().dot(np.linalg.inv(P)).dot(A)
+
+        X = np.linalg.inv(N).dot(A.transpose().dot(np.linalg.inv(P)).dot(L))  # вектор параметров кинематической модели
+
+        x_LS = np.array([X[0] * t[-1] + X[3], X[1] * t[-1] + X[4], X[2] * t[-1] + X[5]])
+
+        x_LS_first = X[0] + X[1] * t[0]
+
+        # вычисляем вектор невязок
+        V = A.dot(X) - L
+
+        # СКП единицы веса
+        mu = np.sqrt(np.sum(V.transpose().dot(np.linalg.inv(P)).dot(V)) / (V.shape[0] - 6))
+
+        # Qx = np.linalg.inv(N) * mu ** 2
+        Qx = np.linalg.inv(N)
+        C = np.array([[t[-1], 0, 0, 1, 0, 0], [0, t[-1], 0, 0, 1, 0], [0, 0, t[-1], 0, 0, 1]])
+        Qv = C.dot(Qx).dot(C.transpose())
+
+        return x_LS_first, x_LS, Qv, mu, Qx
+
+
+    def chi_test_calc_without_wls(self,
+                                time_series_frag: np.ndarray,
+                                sigma: np.ndarray,
+                                sigma_0,
+                                covariances,
+                                mu,
+                                Q_status) -> tuple:
         """
         A method that is used in geometric_chi_test_statictics to perform geometric chi test.
 
@@ -336,37 +515,56 @@ class Tests:
         Returns:
             tuple: A tuple containing the x_LS_first, x_LS, Qv, and mu values.
         """
-        # маска для NaN значений
-        mask = ~np.isnan(time_series_frag)
-        L = time_series_frag[mask]
+        # Фрагмент временного ряда с одной станцией
+        time_series_frag = pd.DataFrame(time_series_frag)
+        time_series_frag.reset_index(drop=True, inplace=True)
+        time_series_frag.columns = [0, 1, 2]
 
-        # задаем массив эпох
-        t = np.arange(0, L.size, 1)
+        # скп для этой станции
+        sigma = pd.DataFrame(sigma)
+        sigma.reset_index(drop=True, inplace=True)
+        sigma.columns = [0, 1, 2]
 
-        A = np.zeros((L.size, 2))
-        for m in range(L.size):
-            ti = t[m]
-            A[m] = np.array([1, ti])
+        # ковариации для этой станции
+        covariances = pd.DataFrame(covariances)
+        covariances.reset_index(drop=True, inplace=True)
+        covariances.columns = [0, 1, 2]
 
-        P = np.diag(sigma) / sigma_0
+        # скп единицы веса для этой станции
+        mu_values = pd.DataFrame(mu)
+        mu_values.reset_index(drop=True, inplace=True)
+        mu_values.columns = [0]
 
-        # решаем СЛАУ
-        N = A.transpose().dot(P).dot(A)
-        X = np.linalg.pinv(N).dot(A.transpose().dot(P).dot(L))  # вектор параметров кинематической модели
-        x_LS = X[0] + X[1] * t[-1]
-        x_LS_first = X[0] + X[1] * t[0]
-        # вычисляем вектор невязок
-        V = A.dot(X) - L  #
-        Qx = np.linalg.pinv(N)
-        # СКП единицы веса
-        mu = np.sqrt(np.sum(V.transpose().dot(P).dot(V))/(V.shape[0]-2))
-        Qv = np.sqrt(Qx[1, 1] * mu ** 2 + Qx[0, 0] * mu ** 2 * t[-1])
-        return x_LS_first, x_LS, Qv, mu
+        # заполнение матрицы Q
+        if Q_status == '0':
+            sde = sigma[0][0]
+            sdn = sigma[1][0]
+            sdu = sigma[2][0]
+            sden = covariances[0][0]
+            sdnu = covariances[1][0]
+            sdue = covariances[2][0]
+
+            Q = np.array([
+                [sde**2, sden**2, sdue**2],
+                [sden**2, sdn**2, sdnu**2],
+                [sdue**2, sdnu**2, sdu**2]])
+        # если матрица единичная
+        elif Q_status == '1':
+            Q = np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1]])
+
+        P = Q/((0.005*3)**2)
+
+        return P
+
 
     def geometric_chi_test_statictics(self, station,
                                       time_series_df: DataFrame,
                                       window_size: str,
-                                      sigma_0) -> tuple:
+                                      sigma_0,
+                                      Q_status) -> tuple:
         """
         Performs a geometric Chi test on the given time series DataFrame.
 
@@ -375,6 +573,7 @@ class Tests:
             time_series_df (DataFrame): The time series DataFrame.
             window_size (str): The size of time intervals for wls interpolation.
             sigma_0 (float): The sigma_0 value.
+            Q_status (str)
 
         Returns:
             tuple: A tuple containing the X_WLS, Qv_WLS, test_statistic, wls_df, and Qv_df values.
@@ -397,22 +596,23 @@ class Tests:
 
         coord_cols = [col for col in fragment.columns if
                       col.startswith('x_') or col.startswith('y_') or col.startswith('z_')]
-
         sigma_cols = [f'sde_{station}' if col.startswith('x_') else f'sdn_{station}' if col.startswith(
             'y_') else f'sdu_{station}' for col in coord_cols]
+        covariance_cols = [f'sden_{station}' if col.startswith('x_') else f'sdnu_{station}' if col.startswith(
+            'y_') else f'sdue_{station}' for col in coord_cols]
 
-        for coord_col, sigma_col in zip(coord_cols, sigma_cols):
-            x_LS_first, _, Qx, mu_first = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
-                                                                        sigma=fragment[sigma_col],
-                                                                        sigma_0=sigma_0)
-            initial_values_X.append(x_LS_first)
-            initial_values_Qv.append(Qx)
-            initial_values_mu.append(mu_first)
+        x_LS_first, _, Qv, mu_first, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                   sigma=fragment[sigma_cols],
+                                                                   covariances=fragment[covariance_cols],
+                                                                   sigma_0=sigma_0, Q_status=Q_status)
+        initial_values_X.append(x_LS_first)
+        initial_values_Qv.append(Qx)
+        initial_values_mu.append(mu_first)
 
-        X_WLS.append(initial_values_X)
-        Qv_WLS.append(initial_values_Qv)
-        wls_times.append(start_time)
-        mu_list.append(initial_values_mu)
+        '''X_WLS.append(x_LS_first)
+        Qv_WLS.append(Qx)
+        mu_list.append(mu_first)
+        wls_times.append(start_time)'''
 
         i = 0
 
@@ -421,22 +621,15 @@ class Tests:
             # извлечение фрагмента
             fragment = time_series_df[(time_series_df.index >= start_time) & (time_series_df.index < end_time)]
 
-            x_LS_values = []
-            Qx_values = []
-            mu_values = []
-
             # Apply the least squares code to the fragment
-            for coord_col, sigma_col in zip(coord_cols, sigma_cols):
-                x_LS_first, x_LS, Qx, mu = self.geometric_chi_test_calc(time_series_frag=fragment[coord_col],
-                                                                        sigma=fragment[sigma_col].values,
-                                                                        sigma_0=sigma_0)
-                x_LS_values.append(x_LS)
-                Qx_values.append(Qx)
-                mu_values.append(mu)
+            x_LS_first, x_LS, Qv, mu, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                   sigma=fragment[sigma_cols],
+                                                                   covariances=fragment[covariance_cols],
+                                                                   sigma_0=sigma_0, Q_status=Q_status)
 
-            X_WLS.append(x_LS_values)
-            Qv_WLS.append(Qx_values)
-            mu_list.append(mu_values)
+            X_WLS.append(x_LS)
+            Qv_WLS.append(Qv)
+            mu_list.append(mu)
 
             # Двигаемся к следующему фрагменту
             start_time = end_time
@@ -444,31 +637,96 @@ class Tests:
             i += 1
 
         # конвертация списков в формат numpy
-        X_WLS, Qv_WLS, mu_list = np.array(X_WLS), np.array(Qv_WLS), np.array(mu_list)
+        X_WLS, mu_list = np.array(X_WLS), np.array(mu_list)
 
         time_series_df.reset_index(inplace=True)
 
         wls_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
-        Qv_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
-        mu_df = pd.DataFrame(columns=['Date', f'x_{station}', f'y_{station}', f'z_{station}'])
+        Qv_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'Qv_{station}': Qv_WLS})
+        mu_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'MU_{station}': mu_list})
 
         # добавляем колонку с датами в датафреймы
-        wls_df['Date'], Qv_df['Date'], mu_df['Date'] = pd.to_datetime(wls_times), pd.to_datetime(wls_times), pd.to_datetime(wls_times)
+        wls_df['Date'] = pd.to_datetime(wls_times)
 
-        # добавляем колонки с данными
         wls_df.iloc[:, 1:] = X_WLS
-        Qv_df.iloc[:, 1:] = Qv_WLS
-        mu_df.iloc[:, 1:] = mu_list
+        #Qv_df.iloc[:, 1:] = Qv_WLS
 
-        # вычисляем статистику теста (данный фрагмент перенесен в _perform_chi2_test, будет удален)
-        test_statistic = np.zeros((X_WLS.shape[0] - 1))
-        for l in range(X_WLS.shape[0] - 1):
-            Qv = Qv_WLS[l] + Qv_WLS[l + 1]
-            d = X_WLS[l] - X_WLS[l + 1]
-            Qdd = np.diag(Qv)
-            test_statistic[l] = d.transpose().dot(Qdd).dot(d) / (sigma_0 ** 2)
+        return X_WLS, Qv_WLS, wls_df, Qv_df, mu_df
 
-        return X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_df
+    def geometric_without_wls(self, station,
+                                      time_series_df: DataFrame,
+                                      window_size: str,
+                                      sigma_0,
+                                      Q_status) -> tuple:
+
+        X_WLS = []
+        Qv_WLS = []
+        wls_times = []
+        initial_values_X = []
+        initial_values_Qv = []
+        initial_values_mu = []
+        mu_list = []
+
+        time_series_df['Date'] = pd.to_datetime(time_series_df['Date'])
+
+        # Получение датафрейма со списком уникальных дат
+        dates = time_series_df['Date']
+        # Сортировка дат
+        dates = sorted(dates)
+
+        time_series_df.set_index('Date', inplace=True)
+
+        # Вычисление начального значения
+        start_date = dates[0]
+        end_date = dates[1]
+        fragment = time_series_df.loc[time_series_df.index.isin([start_date, end_date])]
+
+        coord_cols = [col for col in fragment.columns if
+                      col.startswith('x_') or col.startswith('y_') or col.startswith('z_')]
+        sigma_cols = [f'sde_{station}' if col.startswith('x_') else f'sdn_{station}' if col.startswith(
+            'y_') else f'sdu_{station}' for col in coord_cols]
+        covariance_cols = [f'sden_{station}' if col.startswith('x_') else f'sdnu_{station}' if col.startswith(
+            'y_') else f'sdue_{station}' for col in coord_cols]
+        mu_col = f'sigma0_{station}'
+
+        '''x_LS_first, _, Qv, mu_first, Qx = self.geometric_chi_test_calc(time_series_frag=fragment[coord_cols],
+                                                                       sigma=fragment[sigma_cols],
+                                                                       covariances=fragment[covariance_cols],
+                                                                       sigma_0=sigma_0, Q_status=Q_status)
+        initial_values_X.append(x_LS_first)
+        initial_values_Qv.append(Qx)
+        initial_values_mu.append(mu_first)'''
+
+        for i in range(len(dates)): # -1
+            start_date = dates[i]
+            # end_date = dates[i + 1]
+
+            wls_times.append(start_date) # end_date
+            # извлечение фрагмента
+            fragment = time_series_df.loc[time_series_df.index.isin([start_date])]
+
+            # Apply the least squares code to the fragment
+            Q = self.chi_test_calc_without_wls(time_series_frag=fragment[coord_cols],
+                                                                        sigma=fragment[sigma_cols],
+                                                                        covariances=fragment[covariance_cols],
+                                                                        mu=fragment[mu_col],
+                                                                        sigma_0=sigma_0, Q_status=Q_status)
+
+            #X_WLS.append(x_LS)
+            Qv_WLS.append(Q)
+            #mu_list.append(mu)
+
+        # конвертация списков в формат numpy
+        X_WLS, mu_list = np.array(X_WLS), np.array(mu_list)
+
+        time_series_df.reset_index(inplace=True)
+
+        wls_df = time_series_df[['Date', f'x_{station}', f'y_{station}', f'z_{station}']]
+        Qv_df = pd.DataFrame({'Date': pd.to_datetime(wls_times), f'Qv_{station}': Qv_WLS})
+        mu_df = time_series_df[['Date', f'sigma0_{station}']].rename(columns={f'sigma0_{station}': f'MU_{station}'})
+
+        return X_WLS, Qv_WLS, wls_df, Qv_df, mu_df
+
 
     def interpolate_missing_values(self, df: DataFrame) -> DataFrame:
         """
@@ -500,17 +758,25 @@ class Tests:
                 df_filtered[col] = medfilt(df_filtered[col], kernel_size=kernel_size)
         return df_filtered
 
-    def perform_wls(self, df: DataFrame, window_size: str, sigma_0: float) -> tuple:
+    def perform_wls(self, df: DataFrame, window_size: str, sigma_0: float, Q_status: str, wls_status: str) -> tuple:
         """
-        Performs a weighted least squares (WLS) on the given DataFrame.
+        Performs a weighted least squares (WLS) analysis on the given DataFrame.
 
         Args:
             df (DataFrame): The input DataFrame containing time series data.
-            window_size (str): The size of time intervals for wls interpolation.
-            sigma_0 (float): The sigma_0 value.
+            window_size (str): The size of time intervals for WLS interpolation.
+            sigma_0 (float): The sigma_0 value used in the WLS calculations.
+            Q_status (str): Set Q-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            wls_status (str): A flag indicating whether to perform WLS ('1') or not ('0').
 
         Returns:
-            tuple: A tuple containing the wls_df, raw_df, filtered_df, and Qv_df values.
+            tuple: A tuple containing the following DataFrames:
+                - wls (DataFrame): The DataFrame containing the results of the WLS analysis.
+                - raw (DataFrame): The DataFrame containing the raw data for all stations.
+                - filtered (DataFrame): The DataFrame containing the filtered data for all stations.
+                - Qv (DataFrame): The DataFrame containing Qv values for all stations.
+                - mu_mean_df (DataFrame): A DataFrame containing the mean values of MU for each date.
+                - MU (DataFrame): The DataFrame containing MU values for all stations.
         """
         station_names = list(set(df.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
 
@@ -525,21 +791,31 @@ class Tests:
             station_cols = ['Date'] + [col for col in df.columns if station in col]
 
             # извлекаем колонны
-            station_df = df[station_cols]
+            station_df_raw = df[station_cols]
 
             # интерполируем пропуски в данных
-            station_df = self.interpolate_missing_values(station_df)
+            station_df = self.interpolate_missing_values(station_df_raw)
 
             # медианный фильтр
             station_df_filtered = self.filter_data(station_df, kernel_size=11)
 
-            # Perform the geometric chi test
-            X_WLS, Qv_WLS, test_statistic, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(station=station,
-                                                                                              time_series_df=station_df_filtered,
-                                                                                              window_size=window_size,
-                                                                                              sigma_0=sigma_0)
+            if wls_status == '1':
+                # Perform the geometric chi test
+                X_WLS, Qv_WLS, wls_df, Qv_df, mu_station_df = self.geometric_chi_test_statictics(
+                    station=station,
+                    time_series_df=station_df_filtered,
+                    window_size=window_size,
+                    sigma_0=sigma_0, Q_status=Q_status)
+            if wls_status == '0':
+                # Perform the geometric chi test without least squares interpolation
+                X_WLS, Qv_WLS, wls_df, Qv_df, mu_station_df = self.geometric_without_wls(
+                    station=station,
+                    time_series_df=station_df_filtered,
+                    window_size=window_size,
+                    sigma_0=sigma_0, Q_status=Q_status)
+
             # Append the wls_df to the list
-            raw_dfs.append(station_df)
+            raw_dfs.append(station_df_raw)
             filtered_dfs.append(station_df_filtered)
             wls_dfs.append(wls_df)
             Qv_dfs.append(Qv_df)
@@ -567,6 +843,173 @@ class Tests:
         MU = MU.loc[:, ~MU.columns.duplicated()]
 
         return wls, raw, filtered, Qv, mu_mean_df, MU
+
+    def create_html_report(self, offset_points, rejected_dates, wls, raw, filtered, window_size,
+                           file_path, file_name, Q_status, Qdd_status, m_coef):
+        """
+        Generates an HTML report containing offset analysis and visualizations.
+
+        Args:
+            offset_points (list): A list of tuples containing offset data, where each tuple consists of
+                                  (start_date, end_date, station, offset_size).
+            rejected_dates (list): A list of tuples containing rejected date ranges, where each tuple consists of
+                                   (start_date, end_date).
+            wls (DataFrame): A DataFrame containing weighted least squares data.
+            raw (DataFrame): A DataFrame containing raw data.
+            filtered (DataFrame): A DataFrame containing filtered data.
+            window_size (str): The size of time intervals for wls interpolation.
+            file_path (str): The file path for saving the report.
+            file_name (str): The name of the report file.
+            Q_status (str): Set Q-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            Qdd_status (str): Set Qdd-matrix status. 1 - identity matrix, 2 - covariance matrix.
+            m_coef (float): Scale-factor value for the Chi-test statistic. Defaults to 1.
+
+        Returns:
+            None: The function saves the report to the specified output path and does not return a value.
+        """
+        # сохранение результатов в таблицу для HTML отчета
+        offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
+        offsets_html_table = offsets_table.to_html(index=False)
+
+        # Извлечение названий станций из названий колонок
+        stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
+
+        # создание папки с результатами
+        result_directory = f'Data/test-Q({Q_status})-Qdd({Qdd_status})-m_coef({m_coef})-{file_name}'
+        os.makedirs(result_directory, exist_ok=True)
+
+        # сохранение смещений в виде csv таблицы
+        offsets_table.to_csv(f'{result_directory}/Offsets-table-{file_name}.csv', sep=';', index=False)
+
+        raw.to_csv(f'{result_directory}/Raw-data-{file_name}.csv', sep=';', index=False)
+
+        # получение логов
+        string_io_handler.flush()
+        log_contents = string_io_handler.stream.getvalue()
+
+        ## группировка смещений по станциям
+        station_offsets = {station: [] for station in stations}  # Initialize with all stations
+        for start_date, end_date, station, offset_size in offset_points:
+            if station in station_offsets:
+                station_offsets[station].append((start_date, end_date))
+
+
+        # словарь для создания HTML отчета
+        report_data = {
+            'file_name': file_path,
+            'total_tests': (len(wls['Date']) - 1),
+            'stations_length': len(stations),
+            'stations_names': stations,
+            'window_size': window_size,
+            'offset_points': offsets_html_table,
+            'offset_plots': '',
+            'triangulation_map': '',
+            'log_contents': log_contents}
+
+        # Создаем графики в HTML отчете для каждой станции
+
+        # for station, offsets in station_offsets.items():
+        for station in stations:
+            offsets = station_offsets[station]  # Get offsets for the current station
+
+            station_df_wls = wls[
+                [col for col in wls.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+            station_df_raw = raw[
+                [col for col in raw.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+            station_df_filtered = filtered[
+                [col for col in filtered.columns if
+                 station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
+
+            x_values_raw = station_df_raw[f'x_{station}']
+            y_values_raw = station_df_raw[f'y_{station}']
+            z_values_raw = station_df_raw[f'z_{station}']
+
+            x_values_fil = station_df_filtered[f'x_{station}']
+            y_values_fil = station_df_filtered[f'y_{station}']
+            z_values_fil = station_df_filtered[f'z_{station}']
+
+            x_values = station_df_wls[f'x_{station}']
+            y_values = station_df_wls[f'y_{station}']
+            z_values = station_df_wls[f'z_{station}']
+
+            fig = make_subplots(rows=3, cols=1, vertical_spacing=0.02)
+
+            # график сырых координат
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=True), row=1,
+                          col=1)
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=2,
+                          col=1)
+            fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values_raw, mode='lines', name='Raw data',
+                                     line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=3,
+                          col=1)
+
+            # график координат с фильтром
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=x_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=True),
+                          row=1, col=1)
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=y_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data',
+                                     showlegend=False),
+                          row=2, col=1)
+            fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=z_values_fil, mode='lines', name='Filtered data',
+                                     line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data',
+                                     showlegend=False),
+                          row=3, col=1)
+
+            # график координат с МНК
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=x_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=True),
+                          row=1, col=1)
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=y_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                          row=2, col=1)
+            fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=z_values, mode='lines', name='WLS Estimate',
+                                     line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
+                          row=3, col=1)
+
+            # подсвечиваем даты-кандидаты на графике
+            for start_date, end_date in rejected_dates:
+                fig.add_vrect(x0=start_date, x1=end_date,
+                              fillcolor='red', opacity=0.2,
+                              layer='below', line_width=0)
+
+            # подсвечиваем смещения на графике
+            for start_date, end_date in offsets:
+                fig.add_vrect(x0=start_date, x1=end_date,
+                              fillcolor='green', opacity=0.5,
+                              layer='above', line_width=0)
+
+            for i in range(3):
+                fig.update_xaxes(showgrid=False, row=i + 1, col=1)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True)
+                fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True, tertiary=True)
+                if i < 2:
+                    fig.update_xaxes(tickvals=[], row=i + 1, col=1)
+                else:
+                    fig.update_xaxes(tickformat='%H:%M:%S', row=i + 1, col=1)
+
+            fig.update_layout(height=600, width=1200,  # корректируем размеры графика
+                              title_text=f'Offsets found in {station} station: ',
+                              margin=dict(l=10, r=10, t=50, b=10))
+
+            # Конвертация графиков в HTML
+            html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
+
+            # добавляем графики в HTML отчет
+            report_data['offset_plots'] += html_img + "<br>"
+
+        # Сохранение отчета в файл
+        self.save_html_report(report_data=report_data,
+                              output_path=f'{result_directory}/CongruencyTest-report-{file_name}' + '.html')
+
+        print('File saved in ' + f'{result_directory}/CongruencyTest-report-{file_name}' + '.html')
+        # удаляем обработчик StringIO
+        logger.removeHandler(string_io_handler)
 
     def save_html_report(self, report_data: dict, output_path: str) -> str:
         """
@@ -614,6 +1057,9 @@ class Tests:
         return output_path
 
     def extract_offset_windows(self, df, rejected_dates):
+        """
+        This function is used in window_iteration() and going to be removed.
+        """
         offset_windows = []
 
         for start_date, end_date in rejected_dates:
@@ -623,6 +1069,9 @@ class Tests:
         return offset_windows
 
     def window_iteration(self, df):
+        """
+        This function is going to be removed
+        """
         window_sizes = ['1h', '10min', '1min']
         df['Date'] = pd.to_datetime(df['Date'])
         offset_windows = [df]
@@ -639,7 +1088,7 @@ class Tests:
                 # Get the rejected dates and extract intervals
                 ttest_rejected_dates, chi2_rejected_dates = self.congruency_test(df=wls, calculation="all_dates",
                                                                                  sigma_0=mu_mean_df,
-                                                                                 Qv=Qv)
+                                                                                 Qv=Qv, Qdd_status=Qdd_status)
                 rejected_dates = ttest_rejected_dates + chi2_rejected_dates
                 if rejected_dates:
                     print(f"Rejected dates: {rejected_dates}")
@@ -679,145 +1128,31 @@ def main() -> None:
     # инициализация объекта Tests
     test = Tests(df)
 
+    # WLS статус
+    wls_status = str(input('Нужна ли линейная регрессия \nда - 1\nнет - 0\n '))
+
     # размер окна
-    window_size = '1min'
+    window_size = str(input('Размер окна: '))
 
     # обработка координат при помощи МНК
-    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df, window_size, 0.005)
+    Q_status = str(input('Матрица Q (в лин регрессии)\nединичная - 1\nс ковариациями - 0\n'))
+    Qdd_status = str(input('Матрица Qdd (в хи-тесте)\nединичная - 1\nс ковариациями - 0\n'))
+    m_coef = float(input('Масштабный коэффициент: '))
+
+    # Выполнение линейной регрессии
+    wls, raw, filtered, Qv, mu_mean_df, MU = test.perform_wls(df=df, window_size=window_size, sigma_0=0.05,
+                                                              Q_status=Q_status, wls_status=wls_status)
 
     # перевод дат в корректный формат
     wls['Date'] = wls['Date'].dt.to_pydatetime()
 
-    # Извлечение названий станций из названий колонок
-    stations = list(set(wls.columns[1:].str.extract('_(.*)').iloc[:, 0].tolist()))
-
     # Геометрический тест + поиск станций со смещением
-    offset_points = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2)
+    offset_points, rejected_dates = test.find_offset_points(df=wls, sigma_0=MU, Qv=Qv, max_drop=2, Qdd_status=Qdd_status, m_coef=m_coef)
 
-    ''' for window iteration
-    offsets, offset_dates = test.window_iteration(df)
-    print('offsets', offset_dates)
-    offset_points = test.find_offset_points(df=wls, method='coordinate_based', sigma_0=MU, Qv=Qv, max_drop=2,
-                                            rejected_dates=offset_dates)
-    '''
-
-    # сохранение результатов в таблицу для HTML отчета
-    offsets_table = pd.DataFrame(offset_points, columns=['Start_date', 'End_date', 'Station', 'Offset size'])
-    offsets_html_table = offsets_table.to_html(index=False)
-
-    # создание папки с результатами
-    result_directory = f'Data/CongruencyTest-{file_name}'
-    os.makedirs(result_directory, exist_ok=True)
-    # сохранение смещений в виде csv таблицы
-    offsets_table.to_csv(f'{result_directory}/Offsets-table-{file_name}.csv', sep=';', index=False)
-
-    # получение логов
-    string_io_handler.flush()
-    log_contents = string_io_handler.stream.getvalue()
-
-    # группировка смещений по станциям
-    station_offsets = {}
-    for start_date, end_date, station, offset_size in offset_points:
-        if station not in station_offsets:
-            station_offsets[station] = []
-        station_offsets[station].append((start_date, end_date))
-
-    # словарь для создания HTML отчета
-    report_data = {
-        'file_name': file_path,
-        'total_tests': (len(wls['Date'])-1),
-        'stations_length': len(stations),
-        'stations_names': stations,
-        'window_size': window_size,
-        'offset_points': offsets_html_table,
-        'offset_plots': '',
-        'triangulation_map': '',
-        'log_contents': log_contents}
-
-    # Создаем графики в HTML отчете для каждой станции
-    for station, offsets in station_offsets.items():
-        station_df_wls = wls[
-            [col for col in wls.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
-        station_df_raw = raw[
-            [col for col in raw.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
-        station_df_filtered = filtered[
-            [col for col in filtered.columns if station in col and not col.startswith(f"sd{station}"[0:2]) or col == 'Date']]
-
-        x_values_raw = station_df_raw[f'x_{station}']
-        y_values_raw = station_df_raw[f'y_{station}']
-        z_values_raw = station_df_raw[f'z_{station}']
-
-        x_values_fil = station_df_filtered[f'x_{station}']
-        y_values_fil = station_df_filtered[f'y_{station}']
-        z_values_fil = station_df_filtered[f'z_{station}']
-
-        x_values = station_df_wls[f'x_{station}']
-        y_values = station_df_wls[f'y_{station}']
-        z_values = station_df_wls[f'z_{station}']
-
-        fig = make_subplots(rows=3, cols=1, vertical_spacing=0.02)
-
-        # график сырых координат
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=x_values_raw, mode='lines', name='Raw data',
-                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=True), row=1, col=1)
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=y_values_raw, mode='lines', name='Raw data',
-                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=2, col=1)
-        fig.add_trace(go.Scatter(x=station_df_raw['Date'], y=z_values_raw, mode='lines', name='Raw data',
-                                 line=dict(color='lightgray'), legendgroup='Raw data', showlegend=False), row=3, col=1)
-
-        # график координат с фильтром
-        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=x_values_fil, mode='lines', name='Filtered data',
-                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=True),
-                      row=1, col=1)
-        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=y_values_fil, mode='lines', name='Filtered data',
-                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=False),
-                      row=2, col=1)
-        fig.add_trace(go.Scatter(x=station_df_filtered['Date'], y=z_values_fil, mode='lines', name='Filtered data',
-                                 line=dict(color='blue'), yaxis='y2', legendgroup='Filtered data', showlegend=False),
-                      row=3, col=1)
-
-        # график координат с МНК
-        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=x_values, mode='lines', name='WLS Estimate',
-                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=True),
-                      row=1, col=1)
-        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=y_values, mode='lines', name='WLS Estimate',
-                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
-                      row=2, col=1)
-        fig.add_trace(go.Scatter(x=station_df_wls['Date'], y=z_values, mode='lines', name='WLS Estimate',
-                                 line=dict(color='red'), yaxis='y3', legendgroup='WLS Estimate', showlegend=False),
-                      row=3, col=1)
-
-        # подсвечиваем смещения на графике
-        for start_date, end_date in offsets:
-            fig.add_vrect(x0=start_date, x1=end_date,
-                          fillcolor='red', opacity=0.5,
-                          layer='below', line_width=0)
-
-        for i in range(3):
-            fig.update_xaxes(showgrid=False, row=i + 1, col=1)
-            fig.update_yaxes(showgrid=False, row=i + 1, col=1)
-            fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True)
-            fig.update_yaxes(showgrid=False, row=i + 1, col=1, secondary_y=True, tertiary=True)
-            if i < 2:
-                fig.update_xaxes(tickvals=[], row=i + 1, col=1)
-            else:
-                fig.update_xaxes(tickformat='%H:%M:%S', row=i + 1, col=1)
-
-        fig.update_layout(height=600, width=1200,  # корректируем размеры графика
-                          title_text=f'Offsets found in {station} station: ',
-                          margin=dict(l=10, r=10, t=50, b=10))
-
-        # Конвертация графиков в HTML
-        html_img = pio.to_html(fig, include_plotlyjs=True, full_html=False)
-
-        # добавляем графики в HTML отчет
-        report_data['offset_plots'] += html_img + "<br>"
-
-    # Сохранение отчета в файл
-    test.save_html_report(report_data=report_data, output_path=f'{result_directory}/CongruencyTest-report-{file_name}'+'.html')
-
-    # удаляем обработчик StringIO
-    logger.removeHandler(string_io_handler)
+    # Создание отчета
+    test.create_html_report(offset_points=offset_points, rejected_dates=rejected_dates, wls=wls, raw=raw,
+                                      filtered=filtered, window_size=window_size, file_path=file_path,
+                                      file_name=file_name, Q_status=Q_status, Qdd_status=Qdd_status, m_coef=m_coef)
 
 
 if __name__ == "__main__":
