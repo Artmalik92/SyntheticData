@@ -159,14 +159,14 @@ def makefile(directory: str,
 #zero_epoch_coordinates = json.load(open('2024-08-29/first_epoch.json'))
 # "SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "BUZZ"
 # "NSK1", "NOVM", "NSKP", "NSVB", "NVS2" "ST01", "ST02", "ST03", "ST04"
-merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS", "BUZZ"],
+merged_data = makefile(point_names=["SNSK00RUS", "SNSK01RUS", "SNSK02RUS", "SNSK03RUS"],
                        zero_epoch_coords=None,
                        dropna=False,
-                       directory='2024-08-29-last',
+                       directory='2024-08-30',
                        resample_interval=None,
                        fixed_solution_only=False)
 
-merged_data.to_csv('Data/input_files/2024-08-29-last.csv', sep=';', index=False)
+merged_data.to_csv('Data/input_files/2024-08-30-v1-3-0.csv', sep=';', index=False)
 
 print('Done')
 

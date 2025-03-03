@@ -1,93 +1,160 @@
-# SyntheticData
+# Congruence-Test
 
-Библиотека «SyntheticData» представляет собой класс с набором методов и функций для моделирования геодезических сетей, временных рядов решений Precise Point Positioning (PPP), внесения аномалий в измерения, преобразования координат между различными системами, а также набором инструментов для визуализации и упаковки смоделированных данных в файл формата «DataFrame». 
+A Python-based tool for processing GNSS position files and performing congruence testing on GNSS networks.
 
-## **Класс SyntheticData (`Synthetic_Data.py`)**
+## Project Structure
 
-Класс `SyntheticData` содержит следующие методы:
-
-### Методы
-
-#### `my_geodetic2ecef(df)`
-
-Конвертирует координаты из системы BLH в XYZ.
-
-#### `my_ecef2geodetic(df)`
-
-Конвертирует координаты из системы XYZ в BLH.
-
-#### `unique_names(df)`
-
-Возвращает список уникальных имен станций в DataFrame.
-
-#### `random_points(B, L, H, zone, amount, method, min_dist, max_dist)`
-
-Генерирует случайную сеть пунктов с заданными параметрами.
-
-#### `triangulation(df, subplot, canvas, max_baseline)`
-
-Строит геодезическую сеть триангуляции и рисует ее на графике.
-
-#### `create_dataframe(df, date_list)`
-
-Заполняет DataFrame координатами для каждой даты и каждого геодезического пункта.
-
-#### `harmonics(df, date_list, periods_in_year)`
-
-Добавляет годовые и полугодовые колебания к координатам.
-
-#### `linear_trend(df, date_list, periods_in_year)`
-
-Добавляет линейный тренд к координатам.
-
-#### `noise(df, num_periods)`
-
-Добавляет шум к координатам.
-
-#### `impulse(df, impulse_size, target_date=None, num_stations=1, random_dates=0)`
-
-Добавляет импульс к координатам.
-
-## **Пример использования**
-
-```python
-synthetic_data = SyntheticData() 
-df = synthetic_data.random_points(B=50, L=100, H=200, zone=10, amount=10, method='consistent', min_dist=5, max_dist=20) 
-df = synthetic_data.create_dataframe(df, date_list=['2020-01-01', '2020-01-02', ...]) 
-df = synthetic_data.harmonics(df, date_list, periods_in_year=365) 
-df = synthetic_data.linear_trend(df, date_list, periods_in_year=365) 
-df = synthetic_data.noise(df, num_periods=100) 
-df = synthetic_data.impulse(df, impulse_size=0.1, target_date='2020-01-01', num_stations=1) 
+```
+├── config/
+│   ├── logger_config.py     # Logging configuration
+│   ├── config_loader.py     # Configuration loading and validation
+│   └── settings.yaml        # Main configuration file
+├── core/
+│   ├── tests.py             # Core statistical test functions for GNSS time series analysis
+│   └── report_generator.py  # HTML report generation with visualizations
+├── merge_pos_files.py       # .pos file merging functionality
+├── process_pos.py           # Main processing script
+├── requirements.txt         # Project dependencies
+└── README.md                # Project documentation
 ```
 
-# Класс Tests (`congruency.py`)
+## Features
 
-Класс предназначен для выполнения геометрического теста конгруэнтности геодезической сети. Тест позволяет определить, является ли геодезическая сеть конгруэнтной на начальную и i-ую эпохи. 
-Конгруэнтность проверяется при помощи T-теста (ttest) и теста Хи-квадрат (chi2).
-Для проведения теста необходимо импортировать файл формата .csv или DataFrame.
+- GNSS Position File Processing:
+  - Merge multiple .pos files
+  - Resample files by timestamps
+  - Handle fixed/float solutions
+  - Support for multiple GNSS stations
 
-### Функциональность
+- Congruence Testing:
+  - Calculate statistics using Chi-square test
+  - Offset stations detection
 
-Код реализует два метода теста конгруэнтности:
+- HTML Reports:
+  - Interactive visualizations using Plotly
+  - Detailed statistical summaries
 
--   Метод, основанный на вычислении разностей базовых линий на разные эпохи (`line_based`)
--   Метод, основанный на вычислении разностей координат пунктов на разные эпохи (`coordinate_based`)
+## Requirements
 
-### Использование
+- Python 3.7+
+- Required packages (install via requirements.txt):
+  ```
+  pandas
+  numpy
+  scipy
+  plotly
+  jinja2
+  pyyaml
+  moncenterlib
+  ```
 
-Пример использования:
-```python
-import pandas as pd
-df = pd.read_csv('your_file.csv', delimiter=';')
-test = Tests(df)
-test.congruency_test(df=df, method='coordinate_based')
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Artmalik92/Congruence-Test.git
+   cd Congruence-Test
+   ```
+
+2. Install required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## Configuration
+
+The tool uses a YAML configuration file (`config/settings.yaml`) for all settings:
+
+```yaml
+paths:
+  input_directory: "directory"     # Directory containing .pos files
+  output_directory: "Data"         # Base output directory
+  merged_data: "Data"              # Directory for merged .csv file
+  reports: "Data/reports"          # Directory for reports
+
+stations:
+  point_names:                     # List of GNSS stations to process
+    - "STATION1"
+    - "STATION2"
+    # Add more stations as needed
+
+processing:
+  merge:
+    resample_interval: null        # Optional resampling interval
+    dropna: false                  # Whether to drop NaN values
+    fixed_solution_only: false     # Use only fixed solutions
+
+  congruency:
+    med_filter: true               # Whether to apply median filter
+    filter_kernel: 11              # Kernel size for median filter
+    use_wls: false                 # Whether to use Weighted Least Squares
+    window_size: "1h"              # Window size for WLS (if used)
+    Q_status: "0"                  # Matrix type (0=covariance, 1=identity)
+    Qdd_status: "0"                # Matrix type (0=covariance, 1=identity)
+    m_coef: 1.0                    # Scale coefficient for Chi-test
+    max_drop: 2                    # Max stations to drop in offset detection
 ```
 
-## Файл `main_interface.py`
+## Usage
 
-Данный файл содержит код Qt-интерфейса для оконного приложения, написанного при помощи библиотеки PySide и Matplotlib
+1. Configure settings in `config/settings.yaml`
+2. Run the processing script:
+   ```bash
+   python process_pos.py
+   ```
 
-## **Автор**
+The script will:
+1. Load configuration from settings.yaml
+2. Merge POS files from specified stations
+3. Perform congruency testing with configured parameters
+4. Generate an interactive HTML report
 
-Артем Маликов 
-a.o.malikov@mail.ru
+### Input Data Structure
+
+Place your .pos files in a directory structure like:
+```
+your-data-directory/
+├── STATION1/
+│   └── file.pos
+├── STATION2/
+│   └── file.pos
+...
+```
+
+### Output
+
+The tool generates:
+1. Merged data file (path specified in config)
+2. HTML report (path specified in config) containing:
+   - Summary statistics
+   - Offset point analysis
+   - Interactive visualizations
+   - Processing logs
+
+## Core Modules
+
+### core/tests.py
+Contains implementations of:
+- Geometric chi-test calculations
+- Offset point detection
+
+### core/report_generator.py
+Handles:
+- HTML report generation
+- Interactive Plotly visualizations
+- Bootstrap-based design
+
+### core/tools.py
+Provides:
+- Tools for data processing
+
+### config/config_loader.py
+Provides:
+- Configuration loading and validation
+- Path resolution
+- Default configuration values
+
+
+## Authors
+
+Artem Malikov a.o.malikov@mail.ru
