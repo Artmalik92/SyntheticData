@@ -74,6 +74,7 @@ def perform_chi2_test(raz_list: List[float],
 def geometric_chi_test_calc(time_series_frag: np.ndarray,
                             sigma: np.ndarray,
                             covariances: np.ndarray,
+                            mu: np.ndarray,
                             Q_status: str = '0') -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray]:
     """
     Performs geometric chi-test calculations on time series data.
@@ -88,9 +89,10 @@ def geometric_chi_test_calc(time_series_frag: np.ndarray,
         tuple: (x_LS_first, x_LS, Qv, mu, Qx)
     """
     # Convert inputs to DataFrames with consistent structure
-    time_series_df = pd.DataFrame(time_series_frag, columns=[0, 1, 2])
-    sigma_df = pd.DataFrame(sigma, columns=[0, 1, 2])
-    covariances_df = pd.DataFrame(covariances, columns=[0, 1, 2])
+    time_series_df = pd.DataFrame(time_series_frag, columns=[0, 1, 2])  # time series fragment
+    sigma_df = pd.DataFrame(sigma, columns=[0, 1, 2])                   # standart deviation
+    covariances_df = pd.DataFrame(covariances, columns=[0, 1, 2])       # covariances
+    mu_df = pd.DataFrame(mu, columns=[0])                               # RMS error of weight unit
 
     # Initialize arrays
     L = np.zeros((time_series_df.shape[0] * 3))
@@ -99,24 +101,10 @@ def geometric_chi_test_calc(time_series_frag: np.ndarray,
     # Fill L array with coordinates
     for i in range(time_series_df.shape[0]):
         L[3 * i:3 * i + 3] = time_series_df.iloc[i].values
-    """ Old version
-    for i in range(time_series_df.shape[0]):
-        for j in range(3):
-            L[3 * i] = time_series_df[0][i]
-            L[3 * i + 1] = time_series_df[1][i]
-            L[3 * i + 2] = time_series_df[2][i]"""
 
     # # Create coefficient matrix A
     A = np.vstack([np.hstack((np.identity(3) * ti, np.identity(3)))
                    for ti in t])
-    """ Old version
-    for m in range(time_series_df.shape[0]):
-        ti = t[m]
-        if m == 0:
-            A = np.hstack((np.identity(3) * ti, np.identity(3)))
-        else:
-            Aux = np.hstack((np.identity(3) * ti, np.identity(3)))
-            A = np.vstack((A, Aux))"""
 
     # Create Q matrix
     Q_size = time_series_df.shape[0] * 3
@@ -149,7 +137,7 @@ def geometric_chi_test_calc(time_series_frag: np.ndarray,
         X[1] * t[-1] + X[4],
         X[2] * t[-1] + X[5]
     ])
-    # x_LS_first = np.array([X[0] + X[1] * t[0], X[2]])
+
     x_LS_first = X[0] + X[1] * t[0]
 
     # Calculate residuals and standard deviation
@@ -230,7 +218,7 @@ def find_offsets(df: pd.DataFrame,
         if Qv_matrices is None:
             continue
 
-        # Get sigma0 for the epoch with enhanced validation
+        # Get sigma0 for the epoch
         sigma0_values = mu_mean_df[mu_mean_df['Date'] == start_date]['Sum_of_Squares']
         if sigma0_values.empty:
             logger.warning(f"No sigma0 value found for date {start_date}")
@@ -245,7 +233,7 @@ def find_offsets(df: pd.DataFrame,
                 f"Unusually small sigma0 ({current_sigma0:.2e}) found for date {start_date}. Using minimum value.")
             current_sigma0 = min_sigma0
 
-        # Perform Chi-square test with validated sigma0
+        # Perform Chi-square test
         chi2_result = perform_chi2_test(
             raz_list=raz_list,
             sigma_0=current_sigma0,

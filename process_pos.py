@@ -78,26 +78,28 @@ def process_gnss_data(config_path: str = "config/settings.yaml") -> None:
             coord_cols = [col for col in wls.columns if col.startswith(('x_', 'y_', 'z_')) and station in col]
             sigma_cols = [f'sde_{station}', f'sdn_{station}', f'sdu_{station}']
             covar_cols = [f'sden_{station}', f'sdnu_{station}', f'sdue_{station}']
-
-            # median filter
-            if processing['congruency']['med_filter']:
-                wls[coord_cols] = filter_data(wls[coord_cols],
-                                              kernel_size=processing['congruency']['filter_kernel'])
-
-            # interpolate missing values
-            if processing['congruency']['interpolate_missing']:
-                wls[coord_cols] = interpolate_missing_values(wls[coord_cols])
+            mu_col = f'sigma0_{station}'
 
             # Calculate geometric parameters for the station
             _, _, Qv, mu, _ = geometric_chi_test_calc(
                 time_series_frag=wls[coord_cols].values,
                 sigma=wls[sigma_cols].values,
                 covariances=wls[covar_cols].values,
+                mu=wls[mu_col].values,
                 Q_status=processing['congruency']['Q_status']
             )
 
             Qv_data[f'Qv_{station}'] = [Qv.tolist()] * len(wls)
             MU_data[f'sigma0_{station}'] = [mu] * len(wls)
+
+        # Median filter
+        if processing['congruency']['med_filter']:
+            wls = filter_data(wls, kernel_size=processing['congruency']['filter_kernel'])
+            filtered = wls.copy()
+
+        # interpolate missing values
+        if processing['congruency']['interpolate_missing']:
+            wls = interpolate_missing_values(wls)
 
         # Convert to DataFrames
         Qv_df = pd.DataFrame(Qv_data)

@@ -52,7 +52,7 @@ A Python-based tool for processing GNSS position files and performing congruence
 
 1. Clone the repository:
    ```bash
-   git clone <https://github.com/Artmalik92/Congruence-Test.git>
+   git clone https://github.com/Artmalik92/Congruence-Test.git
    cd Congruence-Test
    ```
 
