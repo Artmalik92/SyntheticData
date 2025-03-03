@@ -1,0 +1,44 @@
+# GNSS Processing Configuration
+# All paths are relative to the project root directory
+
+# Input/Output Settings
+paths:
+  input_directory: "2024-08-30"                    # Directory containing .pos files
+  output_directory: "Data"                         # Base directory for all outputs
+  merged_data: "Data/input_files/merged_data.csv"  # Directory for merged .csv file
+  reports: "Data/reports"                          # Directory for reports
+
+# Station Settings
+stations:
+  point_names:
+    - "SNSK00RUS"
+    - "SNSK01RUS"
+    - "SNSK02RUS"
+    - "SNSK03RUS"
+#    - "BUZZ"
+
+# Processing Settings
+processing:
+  # Merging options
+  merge:
+    resample_interval: null        # Set to null for no resampling, or use e.g., "1H" for hourly
+    dropna: false                  # Whether to drop rows with NaN values
+    fixed_solution_only: false     # Whether to use only fixed solutions
+
+  # Congruency test options
+  congruency:
+    med_filter: true               # Whether to apply median filter
+    filter_kernel: 11              # Kernel size for median filter
+    interpolate_missing: false     # Whether to interpolate missing spaces in the .pos file
+    use_wls: false                 # Whether to use Weighted Least Squares
+    window_size:                   # Window size for WLS (if used)
+    Q_status: "0"                  # Matrix type: "0" for covariance, "1" for identity
+    Qdd_status: "0"                # Matrix type: "0" for covariance, "1" for identity
+    m_coef: 10.0                   # Scale coefficient for Chi-test
+    max_drop: 2                    # Maximum number of stations to drop in offset detection
+
+# Logging Settings
+logging:
+  level: "INFO"              # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+  capture_for_report: true   # Whether to capture logs for HTML report
