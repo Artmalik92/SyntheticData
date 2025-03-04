@@ -63,7 +63,7 @@ def perform_chi2_test(raz_list: List[float],
         Qdd = Qv
 
     # Calculate test statistic
-    K = (d.dot(np.linalg.inv(Qdd)).dot(d.transpose()) / sigma_0) * m_coef
+    K = (d @ np.linalg.inv(Qdd) @ d.T / sigma_0) * m_coef
 
     # Calculate critical value
     test_value = chi2.ppf(df=((d.shape[0]) / 3) * 6, q=threshold)
@@ -168,8 +168,7 @@ def find_offsets(df: pd.DataFrame,
 
     The function implements a statistical test to detect significant changes
     in coordinate time series between consecutive epochs. It uses both the
-    coordinate differences and their associated uncertainties (through Qv matrices)
-    to perform rigorous statistical testing.
+    coordinate differences and their associated uncertainties (through Qv matrices).
 
     Args:
         df: Input DataFrame with time series data

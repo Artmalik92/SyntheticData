@@ -73,6 +73,15 @@ def process_gnss_data(config_path: str = "config/settings.yaml") -> None:
         Qv_data = {'Date': wls['Date']}
         MU_data = {'Date': wls['Date']}
 
+        # interpolate missing values
+        if processing['congruency']['interpolate_missing']:
+            wls = interpolate_missing_values(wls)
+
+        # Median filter
+        if processing['congruency']['med_filter']:
+            wls = filter_data(wls, kernel_size=processing['congruency']['filter_kernel'])
+            filtered = wls.copy()
+
         for station in station_list:
             # Get station-specific columns
             coord_cols = [col for col in wls.columns if col.startswith(('x_', 'y_', 'z_')) and station in col]
@@ -90,16 +99,7 @@ def process_gnss_data(config_path: str = "config/settings.yaml") -> None:
             )
 
             Qv_data[f'Qv_{station}'] = [Qv.tolist()] * len(wls)
-            MU_data[f'sigma0_{station}'] = [mu] * len(wls)
-
-        # Median filter
-        if processing['congruency']['med_filter']:
-            wls = filter_data(wls, kernel_size=processing['congruency']['filter_kernel'])
-            filtered = wls.copy()
-
-        # interpolate missing values
-        if processing['congruency']['interpolate_missing']:
-            wls = interpolate_missing_values(wls)
+            #MU_data[f'sigma0_{station}'] = wls[f'sigma0_{station}'] * len(wls)
 
         # Convert to DataFrames
         Qv_df = pd.DataFrame(Qv_data)
@@ -107,9 +107,10 @@ def process_gnss_data(config_path: str = "config/settings.yaml") -> None:
 
         # Find offset points
         logger.info("Analyzing time series for offset points...")
+
         offset_points, rejected_dates = find_offsets(
             df=wls,
-            sigma_0=MU_df,
+            sigma_0=wls,
             Qv=Qv_df,
             max_drop=processing['congruency']['max_drop'],
             Qdd_status=processing['congruency']['Qdd_status'],
